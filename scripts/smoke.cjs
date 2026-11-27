@@ -108,11 +108,20 @@ const PORT = 5174;
       assert.match(await say('我想聽聽你覺得卡在哪裡，這陣子辛苦了。'), /放鬆/, '被理解時應該軟化');
       assert.match(await page.locator('#pr-turns').textContent(), /已說 2／12 句/);
 
+      // 這句重練：原句放回輸入框、畫面保留並劃線、他不記得，重練掉的那句也算回合
+      await page.locator('#pr-retract').tap();
+      assert.equal(await page.inputValue('#pr-say'), '我想聽聽你覺得卡在哪裡，這陣子辛苦了。');
+      assert.equal(await page.locator('.msg.retracted').count(), 2);
+      assert.equal(await page.locator('#pr-retract').count(), 0, '重練後要先說新的一句');
+      assert.match(await say('謝謝你願意說，我想聽聽你覺得卡在哪裡。'), /放鬆/);
+      assert.match(await page.locator('#pr-turns').textContent(), /已說 3／12 句/);
+      await page.screenshot({ path: join(OUT, `${scheme}-4a-redo.png`), fullPage: true });
+
       // 違法的做法：不協助，這句不算進對話
       await page.fill('#pr-say', '不然我就扣他薪水');
       await page.locator('#pr-send').tap();
       await page.locator('#pr-notice.unlawful').waitFor();
-      assert.equal(await page.locator('.msg.manager').count(), 2);
+      assert.equal(await page.locator('.msg.manager').count(), 3);
       await shot('4-chat');
       await page.fill('#pr-say', '');
 

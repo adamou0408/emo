@@ -416,3 +416,39 @@ test('後端不記錄對話內容：處理請求時不呼叫 console', async () 
   }
   assert.deepEqual(logged, []);
 });
+
+// ---------- 這句重練 ----------
+
+function withRedo() {
+  return [
+    { role: 'manager', text: '你到底為什麼又晚了！', retracted: true },
+    { role: 'report', text: '你現在怪我也沒用吧。', retracted: true },
+    { role: 'manager', text: '我想先聽聽你那邊遇到什麼狀況？' },
+  ];
+}
+
+test('重練掉的那組他看不到，他從重練前的狀態接話；重練掉的句子也算回合', async () => {
+  const req = buildTurnRequest(validateSetup(SETUP), validateMessages(withRedo(), 'turn'));
+  assert.deepEqual(req.messages, [{ role: 'user', content: '我想先聽聽你那邊遇到什麼狀況？' }]);
+  const result = await call('turn', { setup: SETUP, messages: withRedo() });
+  assert.equal(result.data.type, 'reply');
+  assert.equal(result.data.turnsLeft, MAX_TURNS - 2);
+  assert.equal(result.calls[0].messages.length, 1);
+});
+
+test('教練看得到重練掉的嘗試，並被要求對照新舊說法', () => {
+  const messages = validateMessages([...withRedo(), { role: 'report', text: '其實規格一直改。' }], 'feedback');
+  const req = buildFeedbackRequest(validateSetup(SETUP), messages);
+  assert.match(req.messages[0].content, /〔重練掉〕主管：你到底為什麼又晚了！\n〔重練掉〕部屬：你現在怪我也沒用吧。\n主管：我想先聽聽/);
+  assert.match(req.system[0].text, /〔重練掉〕/);
+  assert.match(req.system[0].text, /對照/);
+});
+
+test('重練一定成對；重練掉的句子也受回合上限限制', () => {
+  assert.throws(() => validateMessages([
+    { role: 'manager', text: 'a', retracted: true }, { role: 'report', text: 'b' }, { role: 'manager', text: 'c' },
+  ], 'turn'), { code: 'bad_request' });
+  assert.throws(() => validateMessages([{ role: 'manager', text: 'a', retracted: true }], 'turn'), { code: 'bad_request' });
+  const many = conversation(MAX_TURNS + 1).map((m, i, all) => (i < all.length - 1 ? { ...m, retracted: true } : m));
+  assert.throws(() => validateMessages(many, 'turn'), { code: 'too_many_turns' });
+});
