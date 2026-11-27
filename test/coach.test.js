@@ -7,27 +7,33 @@ import {
   MESSAGES,
   MODEL,
   SAFE_REPLY,
+  buildBriefRequest,
   buildFeedbackRequest,
   buildRoleplaySystem,
   buildTurnRequest,
   checkAccessCode,
   checkConfig,
   handlePractice,
+  parseBrief,
   parseFeedback,
   parseTurn,
   validateMessages,
   validateSetup,
 } from '../server/coach.js';
-import { MAX_CHARS, MAX_TURNS, getPersona, getScenario } from '../public/src/practice-data.js';
+import { MAX_CHARS, MAX_SITUATION_CHARS, MAX_TURNS } from '../public/src/practice-data.js';
 import { CRISIS_NOTICE } from '../public/src/practice-safety.js';
-import { MOCK_FEEDBACK, createMockClient } from '../scripts/mock-claude.mjs';
+import { MOCK_BRIEF, MOCK_FEEDBACK, createMockClient } from '../scripts/mock-claude.mjs';
 
 const ENV = { ANTHROPIC_API_KEY: 'sk-test', ACCESS_CODE: 'pilot-2026' };
-const SETUP = {
-  scenarioId: 'behind',
-  personaId: 'defiant',
-  context: { ability: '做了三年，技術很好', pressure: '下週五要交', goal: '他願意說出卡住的地方' },
+const BRIEF = {
+  title: MOCK_BRIEF.title,
+  person: MOCK_BRIEF.person,
+  state: MOCK_BRIEF.state,
+  blindSpot: MOCK_BRIEF.blind_spot,
+  risk: '',
+  opening: MOCK_BRIEF.opening,
 };
+const SETUP = { situation: '他負責的報表晚了一週，每次問都說快好了。', brief: BRIEF };
 
 // 產生一段輪流的對話：n 句主管、n-1 句部屬，最後一句是主管。
 function conversation(n, text = '我們聊聊進度') {
@@ -59,12 +65,27 @@ const jsonReply = (obj, extra = {}) => ({ stop_reason: 'end_turn', content: [{ t
 
 // ---------- 提示組裝 ----------
 
-test('角色扮演提示包含情境、部屬類型、讀懂狀況的回答與安全規則', () => {
+test('狀況卡請求：用主管的描述現場生成，要求固定欄位與安全訊號', () => {
+  const req = buildBriefRequest('他來一年了，產出一直跟不上');
+  assert.equal(req.model, 'claude-opus-5-5');
+  assert.equal(req.fallbacks, 'default');
+  assert.equal(req.output_config.effort, 'medium');
+  assert.deepEqual(req.output_config.format.schema.required, ['signal', 'title', 'person', 'state', 'blind_spot', 'risk', 'opening']);
+  assert.match(req.messages[0].content, /他來一年了，產出一直跟不上/);
+  const system = req.system[0].text;
+  assert.match(system, /他知道自己的表現不如預期嗎/, '盲點要先檢查根本原因');
+  assert.match(system, /人資/, '去留等議題要提醒先跟人資確認');
+  assert.match(system, /不貼標籤/);
+  assert.match(system, /"crisis"/);
+  assert.match(system, /"unlawful"/);
+});
+
+test('角色扮演提示包含主管的描述、狀況卡與安全規則', () => {
   const setup = validateSetup(SETUP);
   const system = buildRoleplaySystem(setup);
-  assert.ok(system.includes(getScenario('behind').brief));
-  assert.ok(system.includes(getPersona('defiant').behavior));
-  for (const answer of Object.values(SETUP.context)) assert.ok(system.includes(answer));
+  for (const text of [SETUP.situation, BRIEF.title, BRIEF.person, BRIEF.state, BRIEF.blindSpot, BRIEF.opening]) {
+    assert.ok(system.includes(text), text);
+  }
   assert.match(system, /不要跳出角色/);
   assert.match(system, /防衛/);
   assert.match(system, /軟化/);
@@ -73,11 +94,41 @@ test('角色扮演提示包含情境、部屬類型、讀懂狀況的回答與�
   assert.match(system, /"unlawful"/);
 });
 
-test('自訂情境會放進提示；沒填的背景會標示主管沒有補充', () => {
-  const setup = validateSetup({ scenarioId: 'custom', customScenario: '部屬開會常打斷別人', personaId: 'silent' });
-  const system = buildRoleplaySystem(setup);
-  assert.ok(system.includes('主管自己描述的情境：部屬開會常打斷別人'));
-  assert.ok(system.includes('（主管沒有補充）'));
+test('狀況卡解析：欄位齊全才算數，風險可以留空', () => {
+  const ok = parseBrief(jsonReply({ signal: 'none', ...MOCK_BRIEF }));
+  assert.equal(ok.signal, 'none');
+  assert.deepEqual(ok.brief, BRIEF);
+  assert.throws(() => parseBrief(jsonReply({ signal: 'none', ...MOCK_BRIEF, person: '' })), { code: 'upstream' });
+  assert.throws(() => parseBrief(jsonReply({ ...MOCK_BRIEF })), { code: 'upstream' });
+  assert.deepEqual(parseBrief(jsonReply({ signal: 'crisis', title: '', person: '', state: '', blind_spot: '', risk: '', opening: '' })), { signal: 'crisis' });
+});
+
+test('brief 端點：回傳現場生成的狀況卡；描述空白或太長時不呼叫 AI', async () => {
+  const ok = await call('brief', { situation: '他負責的報表晚了一週' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.data.type, 'brief');
+  assert.deepEqual(ok.data.brief, BRIEF);
+  assert.equal(ok.calls.length, 1);
+
+  const empty = await call('brief', { situation: '   ' });
+  assert.equal(empty.status, 400);
+  assert.equal(empty.data.message, MESSAGES.noSituation);
+  const long = await call('brief', { situation: '字'.repeat(MAX_SITUATION_CHARS + 1) });
+  assert.equal(long.status, 400);
+  assert.equal(long.data.message, MESSAGES.situationTooLong);
+  assert.equal(empty.calls.length + long.calls.length, 0);
+});
+
+test('brief 端點：描述裡有危機或違法意圖時，不呼叫 AI', async () => {
+  const crisis = await call('brief', { situation: '我壓力大到不想活了' });
+  assert.equal(crisis.data.type, 'crisis');
+  const unlawful = await call('brief', { situation: '想讓他自己辭職，這樣不用付資遣費' });
+  assert.equal(unlawful.data.type, 'unlawful');
+  assert.equal(crisis.calls.length + unlawful.calls.length, 0);
+  const aiFlag = await call('brief', { situation: '想把她調去沒事做的位置，等她受不了自己走' }, {
+    override: () => jsonReply({ signal: 'unlawful', title: '', person: '', state: '', blind_spot: '', risk: '', opening: '' }),
+  });
+  assert.equal(aiFlag.data.type, 'unlawful');
 });
 
 test('對練請求：模型、拒答備援、結構化輸出、角色對應', () => {
@@ -97,12 +148,15 @@ test('對練請求：模型、拒答備援、結構化輸出、角色對應', ()
   assert.equal(req.messages[2].content, '我們聊聊進度 2');
 });
 
-test('回饋請求：逐字稿標出主管與部屬，要求五個固定欄位', () => {
+test('回饋請求：逐字稿標出主管與部屬，要求固定欄位與風險提醒', () => {
   const messages = validateMessages(conversation(2), 'feedback');
   const req = buildFeedbackRequest(validateSetup(SETUP), messages);
   assert.equal(req.output_config.effort, 'high');
   assert.equal(req.fallbacks, 'default');
-  assert.deepEqual(req.output_config.format.schema.required, ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step']);
+  assert.deepEqual(req.output_config.format.schema.required, ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step', 'risk_note']);
+  assert.ok(req.system[0].text.includes(SETUP.situation));
+  assert.match(req.system[0].text, /risk_note/);
+  assert.match(req.system[0].text, /人資確認程序/);
   assert.equal(req.messages.length, 1);
   assert.match(req.messages[0].content, /主管：我們聊聊進度 1\n部屬：好 1\n主管：我們聊聊進度 2/);
   assert.match(req.system[0].text, /不要替任何人貼標籤/);
@@ -121,7 +175,8 @@ test(`每則訊息最多 ${MAX_CHARS} 字（中文與 emoji 都算一個字）`,
   assert.equal(validateMessages(ok, 'turn').length, 1);
   const long = [{ role: 'manager', text: '好'.repeat(MAX_CHARS + 1) }];
   assert.throws(() => validateMessages(long, 'turn'), { code: 'too_long' });
-  assert.throws(() => validateSetup({ ...SETUP, scenarioId: 'custom', customScenario: '字'.repeat(MAX_CHARS + 1) }), { code: 'too_long' });
+  assert.throws(() => validateSetup({ ...SETUP, situation: '字'.repeat(MAX_SITUATION_CHARS + 1) }), { code: 'too_long' });
+  assert.throws(() => validateSetup({ ...SETUP, brief: { ...BRIEF, person: '字'.repeat(301) } }), { code: 'too_long' });
 });
 
 test('對話格式不對時拒絕：要由主管開始、輪流、最後一句是主管', () => {
@@ -129,8 +184,9 @@ test('對話格式不對時拒絕：要由主管開始、輪流、最後一句�
   assert.throws(() => validateMessages(conversation(1).concat({ role: 'report', text: '好' }), 'turn'), { code: 'bad_request' });
   assert.throws(() => validateMessages([], 'feedback'), { code: 'no_turns' });
   assert.throws(() => validateMessages('nope', 'turn'), { code: 'bad_request' });
-  assert.throws(() => validateSetup({ scenarioId: 'nope', personaId: 'silent' }), { code: 'bad_request' });
-  assert.throws(() => validateSetup({ scenarioId: 'behind', personaId: 'nope' }), { code: 'bad_request' });
+  assert.throws(() => validateSetup({ situation: '有狀況' }), { code: 'bad_request' });
+  assert.throws(() => validateSetup({ situation: '有狀況', brief: { ...BRIEF, title: '' } }), { code: 'bad_request' });
+  assert.throws(() => validateSetup({ situation: '有狀況', brief: { ...BRIEF, person: 42 } }), { code: 'bad_request' });
 });
 
 test('超過上限時後端回友善訊息，而且不呼叫 AI', async () => {
@@ -222,7 +278,9 @@ test('回饋解析：五個固定欄位，多的點數只取前 2 點', () => {
   const raw = MOCK_FEEDBACK('你為什麼又晚了');
   raw.strengths.push('第三點');
   const fb = parseFeedback(jsonReply(raw));
-  assert.deepEqual(Object.keys(fb), ['feelings', 'strengths', 'adjustments', 'rewrite', 'nextStep']);
+  assert.deepEqual(Object.keys(fb), ['feelings', 'strengths', 'adjustments', 'rewrite', 'nextStep', 'riskNote']);
+  assert.equal(fb.riskNote, '');
+  assert.equal(parseFeedback(jsonReply({ ...raw, risk_note: '先跟人資確認資遣程序。' })).riskNote, '先跟人資確認資遣程序。');
   assert.ok(fb.feelings.intent && fb.feelings.impact);
   assert.equal(fb.strengths.length, 2);
   assert.equal(fb.adjustments.length, 2);
@@ -264,7 +322,7 @@ test('主管提到自傷念頭：停止對練、提供 1925，不呼叫 AI', asy
   assert.equal(result.data.notice.hotline, CRISIS_NOTICE.hotline);
   assert.equal(result.calls.length, 0);
 
-  const fb = await call('feedback', { setup: { ...SETUP, context: { ability: '他說他想自殺' } }, messages: conversation(1) });
+  const fb = await call('feedback', { setup: { ...SETUP, situation: '他說他想自殺' }, messages: conversation(1) });
   assert.equal(fb.data.type, 'crisis');
   assert.equal(fb.calls.length, 0);
 });
@@ -286,7 +344,7 @@ test('主管想違法處理部屬：不協助、提醒勞動法規、建議找�
     assert.equal(result.calls.length, 0);
   }
   const custom = await call('turn', {
-    setup: { scenarioId: 'custom', customScenario: '想讓他自己辭職，這樣不用付資遣費', personaId: 'silent' },
+    setup: { ...SETUP, situation: '想讓他自己辭職，這樣不用付資遣費' },
     messages: conversation(1),
   });
   assert.equal(custom.data.type, 'unlawful');

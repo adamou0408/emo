@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#FBF6EE" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1F1A17" media="(prefers-color-scheme: dark)">
-  <meta name="description" content="把每個情緒當成來找你的小夥伴。幫他開門，聽他說一句話。">
+  <meta name="description" content="下一場難開口的對話，先在這裡練一次。AI 幫你讀懂狀況、扮演對方陪你練，練完給具體回饋。">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="情緒小夥伴">
-  <title>情緒小夥伴</title>
+  <meta name="apple-mobile-web-app-title" content="心靈健身房">
+  <title>心靈健身房</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -17,27 +17,7 @@
 <body>
   <div class="app">
     <main id="view" tabindex="-1"></main>
-
-    <nav class="tabs" aria-label="主要選單">
-      <button type="button" class="tab" data-tab="home">開門</button>
-      <button type="button" class="tab" data-tab="history">記錄</button>
-      <button type="button" class="tab" data-tab="practice">主管練習室</button>
-    </nav>
   </div>
-
-  <dialog id="rename-dialog" aria-labelledby="rename-title">
-    <form method="dialog" id="rename-form">
-      <h2 id="rename-title">幫他取個名字</h2>
-      <p class="hint" id="rename-hint"></p>
-      <input id="rename-input" type="text" maxlength="8" autocomplete="off" aria-labelledby="rename-title">
-      <div class="dialog-actions">
-        <button type="button" class="btn ghost" id="rename-reset">用原本的名字</button>
-        <button type="button" class="btn ghost" id="rename-cancel">取消</button>
-        <button type="submit" class="btn primary">儲存</button>
-      </div>
-    </form>
-  </dialog>
-
   <script type="module" src="src/app.js"></script>
 </body>
 </html>

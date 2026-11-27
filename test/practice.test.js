@@ -2,26 +2,34 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  CONTEXT_QUESTIONS, MAX_CHARS, MAX_TURNS, PERSONAS, SCENARIOS, charCount,
+  BRIEF_FIELDS, EXAMPLES, MAX_CHARS, MAX_SITUATION_CHARS, MAX_TURNS, charCount,
 } from '../public/src/practice-data.js';
 import { hasCrisisSignal, hasUnlawfulIntent, screen } from '../public/src/practice-safety.js';
 import {
-  CODE_KEY, PRACTICE_KEY, addRecord, createApi, loadCode, loadRecords, saveCode, scenarioTitle, setupFromRecord,
+  CODE_KEY, LEGACY_PRACTICE_KEY, PRACTICE_KEY, addRecord, createApi, loadCode, loadRecords, saveCode, setupFromRecord,
 } from '../public/src/practice.js';
-import { MOCK_FEEDBACK } from '../scripts/mock-claude.mjs';
+import { MOCK_BRIEF, MOCK_FEEDBACK } from '../scripts/mock-claude.mjs';
 
 function fakeStorage(initial = {}) {
   const map = new Map(Object.entries(initial));
   return { getItem: (k) => (map.has(k) ? map.get(k) : null), setItem: (k, v) => map.set(k, String(v)), map };
 }
 
-test('內建 5 個情境、至少 4 種部屬類型、最多 3 題讀懂狀況', () => {
-  assert.deepEqual(SCENARIOS.map((s) => s.id), ['behind', 'stretch', 'feedback', 'resign', 'senior']);
-  assert.ok(PERSONAS.length >= 4);
-  assert.deepEqual(PERSONAS.map((p) => p.id).slice(0, 4), ['defiant', 'struggling', 'anxious', 'silent']);
-  assert.ok(CONTEXT_QUESTIONS.length <= 3);
-  for (const item of [...SCENARIOS, ...PERSONAS]) assert.ok(item.title && item.summary);
-  for (const p of PERSONAS) assert.ok(p.opening && p.behavior);
+const BRIEF = {
+  title: MOCK_BRIEF.title, person: MOCK_BRIEF.person, state: MOCK_BRIEF.state,
+  blindSpot: MOCK_BRIEF.blind_spot, risk: '', opening: MOCK_BRIEF.opening,
+};
+const SETUP = { situation: '他負責的報表晚了一週', brief: BRIEF };
+
+test('情境由主管描述、AI 現場生成；例子只是起點，每個都能直接送出', () => {
+  assert.ok(EXAMPLES.length >= 8, '至少 8 個例子');
+  assert.equal(new Set(EXAMPLES.map((e) => e.label)).size, EXAMPLES.length);
+  for (const e of EXAMPLES) {
+    assert.ok(e.label && e.text);
+    assert.ok(charCount(e.text) <= MAX_SITUATION_CHARS);
+    assert.equal(screen({ situation: e.text }, []), null, `例子不應觸發安全提醒：${e.label}`);
+  }
+  assert.deepEqual(BRIEF_FIELDS.map((f) => f.id), ['person', 'state', 'blindSpot', 'risk']);
   assert.equal(MAX_TURNS, 12);
   assert.equal(MAX_CHARS, 500);
 });
@@ -36,37 +44,49 @@ test('安全判斷：危機優先於違法；只看主管寫的文字', () => {
   assert.equal(hasCrisisSignal('今天好累'), false);
   assert.equal(hasUnlawfulIntent('我要逼他離職'), true);
   assert.equal(hasUnlawfulIntent('我想了解他為什麼想離職'), false);
-  assert.equal(screen({ context: { goal: '想逼退他' } }, []), 'unlawful');
+  assert.equal(screen({ situation: '想逼退他' }, []), 'unlawful');
   assert.equal(screen({}, [{ role: 'manager', text: '扣他薪水，然後我也想死' }]), 'crisis');
   assert.equal(screen({}, [{ role: 'report', text: '我不想活了' }]), null);
-  assert.equal(screen({}, [{ role: 'manager', text: '我們聊聊這週的進度' }]), null);
+  assert.equal(screen({ situation: '他的報表晚了' }, [{ role: 'manager', text: '我們聊聊這週的進度' }]), null);
 });
 
-test('練習紀錄只存情境、部屬類型、背景與回饋，不存逐字稿；重新讀取仍在、最新的在前', () => {
+test('練習紀錄只存狀況、狀況卡與回饋，不存逐字稿；重新讀取仍在、最新的在前', () => {
   const storage = fakeStorage();
-  const setup = { scenarioId: 'behind', customScenario: '', personaId: 'silent', context: { goal: '說出卡點' } };
-  const first = addRecord(storage, { setup, feedback: MOCK_FEEDBACK('a') }, { now: new Date('2026-11-26T08:00:00Z') });
-  const second = addRecord(storage, { setup: { ...setup, scenarioId: 'custom', customScenario: '開會常打斷人' }, feedback: MOCK_FEEDBACK('b') },
+  const first = addRecord(storage, { setup: SETUP, feedback: MOCK_FEEDBACK('a') }, { now: new Date('2026-11-26T08:00:00Z') });
+  const second = addRecord(storage, { setup: { ...SETUP, situation: '他開會常打斷人' }, feedback: MOCK_FEEDBACK('b') },
     { now: new Date('2026-11-27T08:00:00Z') });
   const records = loadRecords(storage);
   assert.deepEqual(records.map((r) => r.id), [second.id, first.id]);
-  assert.deepEqual(Object.keys(first).sort(), ['at', 'context', 'customScenario', 'feedback', 'id', 'personaId', 'scenarioId']);
+  assert.deepEqual(Object.keys(first).sort(), ['at', 'brief', 'feedback', 'id', 'situation', 'title']);
+  assert.equal(first.title, BRIEF.title);
   assert.ok(!storage.map.get(PRACTICE_KEY).includes('messages'));
-  assert.equal(records[0].customScenario, '開會常打斷人');
+  assert.equal(records[0].situation, '他開會常打斷人');
 });
 
-test('同一情境、同一部屬類型再練一次：從紀錄還原設定', () => {
+test('再練一次：從紀錄還原狀況與狀況卡，不用重新生成', () => {
   const storage = fakeStorage();
-  const setup = { scenarioId: 'resign', customScenario: '', personaId: 'anxious', context: { pressure: '這週要回覆' } };
-  const record = addRecord(storage, { setup, feedback: MOCK_FEEDBACK('a') });
-  assert.deepEqual(setupFromRecord(record), setup);
-  assert.equal(scenarioTitle(setup), '部屬提離職');
-  assert.equal(scenarioTitle({ scenarioId: 'custom' }), '自己描述的情境');
+  const record = addRecord(storage, { setup: SETUP, feedback: MOCK_FEEDBACK('a') });
+  assert.deepEqual(setupFromRecord(record), SETUP);
+  assert.equal(setupFromRecord({ ...record, brief: null }), null);
+});
+
+test('舊版練習紀錄仍看得到，但不能再練', () => {
+  const legacy = [{
+    id: 'old', at: '2026-11-27T18:21:00.000Z', scenarioId: 'behind', customScenario: '', personaId: 'silent',
+    context: {}, feedback: MOCK_FEEDBACK('x'),
+  }];
+  const storage = fakeStorage({ [LEGACY_PRACTICE_KEY]: JSON.stringify(legacy) });
+  const [record] = loadRecords(storage);
+  assert.equal(record.title, '專案進度延遲，需要推進');
+  assert.equal(setupFromRecord(record), null);
+  addRecord(storage, { setup: SETUP, feedback: MOCK_FEEDBACK('a') }, { now: new Date('2026-11-28T08:00:00Z') });
+  assert.deepEqual(loadRecords(storage).map((r) => r.title), [BRIEF.title, '專案進度延遲，需要推進']);
 });
 
 test('壞掉的練習紀錄不會讓畫面壞掉', () => {
   assert.deepEqual(loadRecords(fakeStorage({ [PRACTICE_KEY]: '{bad' })), []);
   assert.deepEqual(loadRecords(fakeStorage({ [PRACTICE_KEY]: JSON.stringify([{ id: 'x' }]) })), []);
+  assert.deepEqual(loadRecords(fakeStorage({ [LEGACY_PRACTICE_KEY]: '"nope"' })), []);
 });
 
 test('邀請碼存在本機，方便下次不用重打', () => {
@@ -83,11 +103,15 @@ test('前端 API：邀請碼放在標頭；沒有後端時當作還沒準備好�
     seen.push({ url, init });
     return new Response(JSON.stringify({ type: 'reply', reply: '嗯' }), { status: 200 });
   });
-  const ok = await api.turn('abc', { scenarioId: 'behind' }, [{ role: 'manager', text: 'hi' }]);
+  const ok = await api.turn('abc', SETUP, [{ role: 'manager', text: 'hi' }]);
   assert.deepEqual(ok, { ok: true, type: 'reply', reply: '嗯' });
   assert.equal(seen[0].url, '/api/practice/turn');
   assert.equal(seen[0].init.headers['x-access-code'], 'abc');
   assert.deepEqual(JSON.parse(seen[0].init.body).messages, [{ role: 'manager', text: 'hi' }]);
+
+  await api.brief('abc', '他的報表晚了');
+  assert.equal(seen[1].url, '/api/practice/brief');
+  assert.deepEqual(JSON.parse(seen[1].init.body), { situation: '他的報表晚了' });
 
   const missing = await createApi(async () => new Response('找不到', { status: 404 })).status();
   assert.equal(missing.ok, false);

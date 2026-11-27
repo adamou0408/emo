@@ -1,11 +1,21 @@
-// 主管練習室的前端邏輯：練習紀錄、邀請碼、呼叫後端。不碰 DOM。
-// 練習紀錄只存情境、部屬類型與回饋，不存對話逐字稿，而且只存在這台裝置的瀏覽器。
+// 心靈健身房的前端邏輯：練習紀錄、邀請碼、呼叫後端。不碰 DOM。
+// 練習紀錄只存狀況描述、狀況卡與回饋，不存對話逐字稿，而且只存在這台裝置的瀏覽器。
 
-import { CUSTOM_SCENARIO_ID, getPersona, getScenario } from './practice-data.js';
+import { BRIEF_FIELDS } from './practice-data.js';
 
-export const PRACTICE_KEY = 'emo.practice.v1';
+export const PRACTICE_KEY = 'emo.practice.v2';
+export const LEGACY_PRACTICE_KEY = 'emo.practice.v1';
 export const CODE_KEY = 'emo.practice.code.v1';
 const MAX_RECORDS = 50;
+
+// 舊版（固定情境清單）留下的紀錄：只顯示，不能再練。
+const LEGACY_TITLES = {
+  behind: '專案進度延遲，需要推進',
+  stretch: '交辦超出對方能力的工作',
+  feedback: '給需要改進的回饋',
+  resign: '部屬提離職',
+  senior: '資深部屬不服指揮',
+};
 
 function readJson(storage, key, fallback) {
   try {
@@ -16,17 +26,38 @@ function readJson(storage, key, fallback) {
   }
 }
 
+const isText = (v) => typeof v === 'string' && v.trim().length > 0;
+
+export function isValidBrief(brief) {
+  return Boolean(brief && typeof brief === 'object' && isText(brief.title) && isText(brief.opening)
+    && BRIEF_FIELDS.every((f) => typeof brief[f.id] === 'string'));
+}
+
 function isValidRecord(r) {
-  return r && typeof r.id === 'string' && typeof r.at === 'string'
-    && typeof r.scenarioId === 'string' && getPersona(r.personaId)
-    && (r.scenarioId === CUSTOM_SCENARIO_ID || getScenario(r.scenarioId))
+  return r && typeof r.id === 'string' && typeof r.at === 'string' && isText(r.title)
     && r.feedback && typeof r.feedback === 'object';
 }
 
+function fromLegacy(r) {
+  if (!r || typeof r.id !== 'string' || typeof r.at !== 'string' || !r.feedback) return null;
+  return {
+    id: r.id,
+    at: r.at,
+    title: LEGACY_TITLES[r.scenarioId] ?? '自己描述的情境',
+    situation: typeof r.customScenario === 'string' ? r.customScenario : '',
+    brief: null,
+    feedback: r.feedback,
+  };
+}
+
 export function loadRecords(storage) {
-  const data = readJson(storage, PRACTICE_KEY, []);
-  if (!Array.isArray(data)) return [];
-  return data.filter(isValidRecord).sort((a, b) => b.at.localeCompare(a.at));
+  const current = readJson(storage, PRACTICE_KEY, []);
+  const legacy = readJson(storage, LEGACY_PRACTICE_KEY, []);
+  const all = [
+    ...(Array.isArray(current) ? current : []),
+    ...(Array.isArray(legacy) ? legacy.map(fromLegacy) : []),
+  ];
+  return all.filter(isValidRecord).sort((a, b) => b.at.localeCompare(a.at));
 }
 
 export function addRecord(storage, { setup, feedback }, { now = new Date(), rng = Math.random } = {}) {
@@ -34,30 +65,21 @@ export function addRecord(storage, { setup, feedback }, { now = new Date(), rng 
   const record = {
     id: `${at}-${Math.floor(rng() * 1e9).toString(36)}`,
     at,
-    scenarioId: setup.scenarioId,
-    customScenario: setup.scenarioId === CUSTOM_SCENARIO_ID ? setup.customScenario : '',
-    personaId: setup.personaId,
-    context: { ...(setup.context ?? {}) },
+    title: setup.brief.title,
+    situation: setup.situation,
+    brief: { ...setup.brief },
     feedback,
   };
-  const records = [record, ...loadRecords(storage)].slice(0, MAX_RECORDS);
+  const current = readJson(storage, PRACTICE_KEY, []);
+  const records = [record, ...(Array.isArray(current) ? current : []).filter(isValidRecord)].slice(0, MAX_RECORDS);
   storage.setItem(PRACTICE_KEY, JSON.stringify(records));
   return record;
 }
 
-// 從紀錄還原練習設定，用來「同一情境、同一部屬類型再練一次」。
+// 從紀錄還原練習設定，用來「再練一次」。舊版紀錄沒有狀況卡，回傳 null。
 export function setupFromRecord(record) {
-  return {
-    scenarioId: record.scenarioId,
-    customScenario: record.customScenario ?? '',
-    personaId: record.personaId,
-    context: { ...(record.context ?? {}) },
-  };
-}
-
-export function scenarioTitle(setup) {
-  if (setup.scenarioId === CUSTOM_SCENARIO_ID) return '自己描述的情境';
-  return getScenario(setup.scenarioId)?.title ?? '';
+  if (!record || !isText(record.situation) || !isValidBrief(record.brief)) return null;
+  return { situation: record.situation, brief: { ...record.brief } };
 }
 
 export function loadCode(storage) {
@@ -105,6 +127,7 @@ export function createApi(fetchImpl = (...args) => fetch(...args)) {
   return {
     status: () => request(fetchImpl, 'status', { method: 'GET' }),
     verify: (code) => request(fetchImpl, 'verify', { code }),
+    brief: (code, situation) => request(fetchImpl, 'brief', { code, body: { situation } }),
     turn: (code, setup, messages) => request(fetchImpl, 'turn', { code, body: { setup, messages } }),
     feedback: (code, setup, messages) => request(fetchImpl, 'feedback', { code, body: { setup, messages } }),
   };

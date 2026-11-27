@@ -1,7 +1,7 @@
 {
-  "name": "情緒小夥伴",
-  "short_name": "小夥伴",
-  "description": "把每個情緒當成來找你的小夥伴。幫他開門，聽他說一句話。",
+  "name": "心靈健身房",
+  "short_name": "心靈健身房",
+  "description": "下一場難開口的對話，先在這裡練一次。",
   "lang": "zh-Hant",
   "start_url": "/",
   "scope": "/",
@@ -9,9 +9,26 @@
   "background_color": "#FBF6EE",
   "theme_color": "#FBF6EE",
   "icons": [
-    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
   ]
 }

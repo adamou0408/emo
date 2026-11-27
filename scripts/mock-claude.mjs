@@ -1,6 +1,6 @@
 // 假的 Claude client，給測試與 smoke 用，不會連到網路。
 // 形狀跟官方 SDK 一樣：client.beta.messages.create(params)。
-// 部屬的反應會跟著主管的語氣變：逼問時防衛、被理解時軟化。
+// 狀況卡固定一份；部屬的反應會跟著主管的語氣變：逼問時防衛、被理解時軟化。
 
 const textResponse = (obj, extra = {}) => ({
   stop_reason: 'end_turn',
@@ -17,6 +17,15 @@ export function mockReply(text) {
   }
   return '嗯……我知道進度晚了，只是不知道從哪裡開始講。';
 }
+
+export const MOCK_BRIEF = {
+  title: '進度延遲，要談怎麼趕上',
+  person: '做事有自己的一套，被追問時容易先解釋外部原因；感覺被尊重時願意說真話。',
+  state: '他知道進度晚了，擔心被認為能力不足，也覺得規格一直改不是他的錯。',
+  blind_spot: '你上次具體說明期限和標準是什麼時候？他可能不清楚哪一部分最急。',
+  risk: '',
+  opening: '（他抱著筆電坐下，先開口）主管，是要談報表的事嗎？',
+};
 
 export const MOCK_FEEDBACK = (firstManagerLine) => ({
   feelings: {
@@ -37,6 +46,7 @@ export const MOCK_FEEDBACK = (firstManagerLine) => ({
     why: '先講事實再邀請他說明，他比較不會覺得被指責。',
   },
   next_step: '下次開場先用一句話描述你看到的事實，接著問一個開放式問題，然後安靜等他回答。',
+  risk_note: '',
 });
 
 export function createMockClient({ calls = [], override } = {}) {
@@ -46,8 +56,9 @@ export function createMockClient({ calls = [], override } = {}) {
         async create(params) {
           calls.push(params);
           if (override) return override(params);
-          const isTurn = Boolean(params.output_config?.format?.schema?.properties?.signal);
-          if (isTurn) {
+          const props = params.output_config?.format?.schema?.properties ?? {};
+          if (props.person) return textResponse({ signal: 'none', ...MOCK_BRIEF });
+          if (props.reply) {
             const last = params.messages[params.messages.length - 1].content;
             return textResponse({ signal: 'none', reply: mockReply(last) });
           }

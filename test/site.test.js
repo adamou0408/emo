@@ -50,3 +50,22 @@ test('repo 裡沒有寫死的 Anthropic 金鑰', () => {
   walk(repo);
   for (const file of files) assert.ok(!/sk-ant-[a-z0-9]/i.test(readFileSync(file, 'utf8')), `${file} 疑似有金鑰`);
 });
+
+test('畫面文案沒有連續天數或懲罰式用語', () => {
+  const banned = ['連續', '天數', 'streak', '中斷', '負面', '失敗', '懲罰', '偷懶', '錯過', '落後'];
+  const files = [
+    'public/index.html',
+    'public/src/app.js',
+    'public/src/practice-view.js',
+    'public/src/practice-data.js',
+    'public/src/practice-safety.js',
+    'public/src/practice.js',
+    'server/coach.js',
+  ];
+  for (const file of files) {
+    const text = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8').toLowerCase();
+    for (const word of banned) {
+      assert.ok(!text.includes(word), `${file} 出現了「${word}」`);
+    }
+  }
+});

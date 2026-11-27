@@ -1,8 +1,8 @@
 // 用手機尺寸的瀏覽器跑一次完整流程並截圖：npm run smoke
 // 需要 Playwright（Claude Code 雲端環境已內建）。截圖輸出到 screenshots/（不進 git）。
-// 主管練習室用假的 Claude（scripts/mock-claude.mjs）接上真正的後端程式，不會連到網路。
+// 用假的 Claude（scripts/mock-claude.mjs）接上真正的後端程式，不會連到網路。
 const assert = require('node:assert/strict');
-const { mkdirSync } = require('node:fs');
+const { mkdirSync, rmSync } = require('node:fs');
 const { join } = require('node:path');
 const { chromium } = require('playwright');
 
@@ -18,6 +18,7 @@ const PORT = 5174;
   const server = await startServer(PORT, {
     practice: (request, action) => handlePractice(request, env, action, { makeClient: () => createMockClient() }),
   });
+  rmSync(OUT, { recursive: true, force: true });
   mkdirSync(OUT, { recursive: true });
   const browser = await chromium.launch();
   const errors = [];
@@ -35,38 +36,7 @@ const PORT = 5174;
       page.on('pageerror', (e) => errors.push(`${scheme}: ${e}`));
       // 故意輸入錯的邀請碼時，瀏覽器會記一筆 401，這是預期的。
       page.on('console', (m) => m.type() === 'error' && !/status of 401/.test(m.text()) && errors.push(`${scheme}: ${m.text()}`));
-      const shot = (name) => page.screenshot({ path: join(OUT, `${scheme}-${name}.png`) });
-
-      await page.goto(`http://localhost:${PORT}/`);
-      assert.equal(await page.locator('.card').count(), 6, '首頁應有 6 位小夥伴');
-      await shot('1-home');
-
-      await page.locator('.card[data-id="anger"] .rename').tap();
-      await page.fill('#rename-input', '阿火');
-      await page.locator('#rename-form button[type=submit]').tap();
-      assert.equal(await page.locator('.card[data-id="anger"] .name').textContent(), '阿火');
-
-      await page.locator('.card[data-id="anger"] .pick').tap();
-      await page.locator('.card[data-id="sadness"] .pick').tap();
-      await page.locator('#range-anger').fill('5');
-      await page.locator('#range-sadness').fill('2');
-      await shot('2-selected');
-
-      await page.locator('#submit').tap();
-      const replies = await page.locator('.replies .bubble p').allTextContents();
-      assert.equal(replies.length, 2, '應有 2 則回應');
-      await shot('3-replies');
-
-      await page.reload();
-      assert.equal(await page.locator('.card[data-id="anger"] .name').textContent(), '阿火', '改名在重新整理後應保留');
-      await page.locator('.tab[data-tab="history"]').tap();
-      assert.deepEqual(await page.locator('.entry .bubble p').allTextContents(), replies, '記錄在重新整理後應保留');
-      await shot('4-history');
-
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      assert.ok(overflow <= 0, `頁面不應橫向捲動（多出 ${overflow}px）`);
-
-      // ---------- 主管練習室 ----------
+      const shot = (name, fullPage = false) => page.screenshot({ path: join(OUT, `${scheme}-${name}.png`), fullPage });
       const noOverflow = async (where) => {
         const extra = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         assert.ok(extra <= 0, `${where} 不應橫向捲動（多出 ${extra}px）`);
@@ -79,20 +49,21 @@ const PORT = 5174;
         return page.locator('.msg.report').nth(before).textContent();
       };
 
-      // 還沒設定金鑰：清楚的說明，畫面不壞
+      // 只有一個用途：沒有底部選單，也沒有情緒記錄。
       delete env.ANTHROPIC_API_KEY;
       delete env.ACCESS_CODE;
-      await page.locator('.tab[data-tab="practice"]').tap();
+      await page.goto(`http://localhost:${PORT}/`);
+      assert.equal(await page.title(), '心靈健身房');
+      assert.equal(await page.locator('nav, .tab, .card').count(), 0, '不應有分頁選單或小夥伴卡片');
       await page.locator('#pr-not-ready').waitFor();
       assert.match(await page.locator('#pr-not-ready').textContent(), /等待設定/);
       assert.match(await page.locator('#pr-privacy').textContent(), /不儲存、也不記錄/);
-      await shot('5-practice-not-ready');
+      await shot('1-not-ready');
 
-      // 設定好之後：邀請碼
+      // 邀請碼
       env.ANTHROPIC_API_KEY = 'mock-key';
       env.ACCESS_CODE = CODE;
       await page.reload();
-      await page.locator('.tab[data-tab="practice"]').tap();
       await page.fill('#pr-code', 'wrong');
       await page.locator('#pr-enter').tap();
       await page.locator('#pr-notice').waitFor();
@@ -100,79 +71,95 @@ const PORT = 5174;
       await page.fill('#pr-code', CODE);
       await page.locator('#pr-enter').tap();
 
-      // 選情境、部屬類型、讀懂狀況
-      await page.locator('.choice[data-id="behind"]').waitFor();
-      assert.equal(await page.locator('.choice').count(), 6, '應有 5 個內建情境加自訂');
-      await page.locator('.choice[data-id="custom"]').tap();
-      await page.locator('#pr-custom').waitFor();
-      await page.locator('.choice[data-id="behind"]').tap();
-      await shot('6-practice-scenario');
-      await page.locator('#pr-next').tap();
-      assert.ok(await page.locator('.choice').count() >= 4, '應至少有 4 種部屬類型');
-      await page.locator('.choice[data-id="defiant"]').tap();
-      await page.locator('#pr-next').tap();
-      assert.equal(await page.locator('.field textarea').count(), 3, '讀懂狀況最多 3 題');
-      await page.fill('#pr-ctx-ability', '做了三年，技術很好，但最近常說「這不是我的問題」。');
-      await page.fill('#pr-ctx-pressure', '客戶下週五要看到成果。');
-      await page.fill('#pr-ctx-goal', '他願意說出卡住的地方，我們一起訂出這週的步驟。');
-      await shot('7-practice-context');
-      await page.locator('#pr-start').tap();
+      // 描述狀況：例子一點就填入，可以再改
+      await page.locator('#pr-situation').waitFor();
+      assert.ok(await page.locator('#pr-brief').isDisabled(), '沒寫描述時不能送出');
+      assert.ok(await page.locator('.example').count() >= 8);
+      await page.locator('.example', { hasText: '進度一直延遲' }).tap();
+      assert.match(await page.inputValue('#pr-situation'), /報表已經晚了一週/);
+      await shot('2-describe');
+      await noOverflow('描述頁');
+
+      // 描述裡有違法意圖：不生成，給提醒
+      await page.fill('#pr-situation', '想讓他自己辭職，這樣不用付資遣費');
+      await page.locator('#pr-brief').tap();
+      await page.locator('#pr-notice.unlawful').waitFor();
+      assert.match(await page.locator('#pr-notice').textContent(), /人資或法務/);
+
+      // 現場生成狀況卡
+      await page.fill('#pr-situation', '他負責的報表已經晚了一週，每次問都說快好了。客戶下週五要看。');
+      await page.locator('#pr-brief').tap();
+      await page.locator('#pr-brief-card').waitFor();
+      assert.match(await page.locator('#pr-brief-title').textContent(), /進度延遲/);
+      for (const id of ['person', 'state', 'blindSpot']) {
+        assert.ok(await page.locator(`[data-brief="${id}"]`).isVisible(), `狀況卡缺少 ${id}`);
+      }
+      await shot('3-brief');
+      await noOverflow('狀況卡');
 
       // 對練：語氣不同，部屬反應不同
+      await page.locator('#pr-start').tap();
+      assert.match(await page.locator('.stage').textContent(), /抱著筆電/);
       assert.match(await say('你到底為什麼又晚了！'), /怪我/, '被逼急時應該防衛');
       assert.match(await say('我想聽聽你覺得卡在哪裡，這陣子辛苦了。'), /放鬆/, '被理解時應該軟化');
       assert.match(await page.locator('#pr-turns').textContent(), /已說 2／12 句/);
 
-      // 違法的做法：不協助，提醒找人資或法務，這句不算進對話
+      // 違法的做法：不協助，這句不算進對話
       await page.fill('#pr-say', '不然我就扣他薪水');
       await page.locator('#pr-send').tap();
       await page.locator('#pr-notice.unlawful').waitFor();
-      assert.match(await page.locator('#pr-notice').textContent(), /人資或法務/);
       assert.equal(await page.locator('.msg.manager').count(), 2);
-      await shot('8-practice-chat');
+      await shot('4-chat');
       await page.fill('#pr-say', '');
 
-      // 回饋：五個固定區塊
+      // 回饋
       await page.locator('#pr-finish').tap();
       await page.locator('#pr-fb-feelings').waitFor();
       for (const id of ['#pr-fb-feelings', '#pr-fb-strengths', '#pr-fb-adjust', '#pr-fb-rewrite', '#pr-fb-next']) {
         assert.ok(await page.locator(id).isVisible(), `回饋缺少 ${id}`);
       }
       assert.equal(await page.locator('#pr-fb-strengths li').count(), 2);
-      assert.equal(await page.locator('#pr-fb-adjust li').count(), 2);
       assert.match(await page.locator('#pr-fb-rewrite').textContent(), /你到底為什麼又晚了/);
       await noOverflow('回饋頁');
-      await page.screenshot({ path: join(OUT, `${scheme}-9-practice-feedback.png`), fullPage: true });
+      await shot('5-feedback', true);
 
-      // 同一情境、同一部屬類型再練一次，並用完 12 回合
+      // 用同樣的狀況再練一次，並用完 12 回合
       await page.locator('#pr-retry').tap();
       assert.equal(await page.locator('.msg').count(), 0);
-      assert.match(await page.locator('.chat-title').textContent(), /專案進度延遲.*能力強但不服/);
+      assert.match(await page.locator('.chat-title').textContent(), /進度延遲/);
       for (let i = 1; i <= 12; i++) await say(`第 ${i} 句，我們來談談進度`);
       await page.locator('#pr-full').waitFor();
       assert.equal(await page.locator('#pr-say').count(), 0, '12 回合後不能再輸入');
       await page.locator('#pr-finish').tap();
       await page.locator('#pr-fb-feelings').waitFor();
 
-      // 危機訊號：停止對練，提供 1925
-      await page.locator('#pr-retry').tap();
-      await page.fill('#pr-say', '老實說我最近也撐不下去，不想活了');
-      await page.locator('#pr-send').tap();
+      // 練另一件事：回到空白描述
+      await page.locator('[data-act="new"]').tap();
+      assert.equal(await page.inputValue('#pr-situation'), '');
+
+      // 危機訊號：停止，提供 1925
+      await page.fill('#pr-situation', '老實說我最近也撐不下去，不想活了');
+      await page.locator('#pr-brief').tap();
       await page.locator('#pr-crisis').waitFor();
       assert.match(await page.locator('#pr-crisis').textContent(), /1925/);
       assert.equal(await page.locator('#pr-crisis a[href="tel:1925"]').count(), 1);
-      await shot('10-practice-crisis');
+      await shot('6-crisis');
 
-      // 過去的練習只存在瀏覽器，重新整理後仍在
+      // 重新整理：已存的邀請碼自動通過，直接回到描述頁；過去的練習仍在
       await page.reload();
-      await page.locator('.tab[data-tab="practice"]').tap();
+      await page.locator('#pr-situation').waitFor();
       await page.locator('[data-act="records"]').tap();
       assert.equal(await page.locator('.record').count(), 2, '應有 2 筆練習紀錄');
       await page.locator('.record details summary').first().tap();
-      await shot('11-practice-records');
+      await shot('7-records');
       await noOverflow('練習紀錄');
-      const stored = await page.evaluate(() => localStorage.getItem('emo.practice.v1'));
+      const stored = await page.evaluate(() => localStorage.getItem('emo.practice.v2'));
       assert.ok(!stored.includes('我想聽聽你覺得卡在哪裡') && !stored.includes('第 12 句'), '不應存逐字稿');
+
+      // 從紀錄再練一次：不用重新生成狀況卡
+      await page.locator('[data-act="retry-record"]').first().tap();
+      await page.locator('#pr-say').waitFor();
+      assert.match(await page.locator('.chat-title').textContent(), /進度延遲/);
       await ctx.close();
     }
     assert.deepEqual(errors, [], '瀏覽器不應有錯誤');

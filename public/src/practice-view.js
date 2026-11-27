@@ -1,15 +1,13 @@
-// 主管練習室的畫面。狀態放在這個模組裡，app.js 切到這個分頁時呼叫 renderPractice。
+// 心靈健身房的畫面：描述狀況 → 讀懂狀況（AI 現場生成）→ 對練 → 回饋。
+// 狀態放在這個模組裡；app.js 只負責儲存空間和事件轉接。
 
 import {
-  CONTEXT_QUESTIONS,
-  CUSTOM_SCENARIO_ID,
+  BRIEF_FIELDS,
+  EXAMPLES,
   MAX_CHARS,
-  MAX_CONTEXT_CHARS,
+  MAX_SITUATION_CHARS,
   MAX_TURNS,
-  PERSONAS,
-  SCENARIOS,
   charCount,
-  getPersona,
 } from './practice-data.js';
 import { CRISIS_NOTICE, UNLAWFUL_NOTICE, screen } from './practice-safety.js';
 import {
@@ -18,7 +16,6 @@ import {
   loadCode,
   loadRecords,
   saveCode,
-  scenarioTitle,
   setupFromRecord,
 } from './practice.js';
 
@@ -26,19 +23,20 @@ const api = createApi();
 let storage = null;
 let view = null;
 
-const emptySetup = () => ({ scenarioId: '', customScenario: '', personaId: '', context: {} });
-
 const ps = {
-  step: 'intro', // intro | scenario | persona | context | chat | feedback | records | crisis
+  step: 'intro', // intro | describe | brief | chat | feedback | records | crisis
   status: null, // null（還沒查）| 'loading' | { ready, missing }
   code: '',
   codeOk: false,
-  setup: emptySetup(),
+  autoTried: false, // 已存過邀請碼時自動確認一次，不用每次重打
+  situation: '',
+  setup: null, // { situation, brief }
   messages: [],
   draft: '',
-  busy: '', // '' | 'turn' | 'feedback' | 'verify'
+  busy: '', // '' | 'verify' | 'brief' | 'turn' | 'feedback'
   notice: null, // { kind: 'unlawful' | 'error', title?, body }
   feedback: null,
+  pendingRetry: null,
 };
 
 function escapeHtml(text) {
@@ -73,13 +71,17 @@ async function loadStatus() {
   ps.status = 'loading';
   const result = await api.status();
   ps.status = result.ok ? { ready: Boolean(result.ready), missing: result.missing ?? [] } : { ready: false, missing: [] };
+  if (ps.status.ready && ps.code && !ps.autoTried) {
+    ps.autoTried = true;
+    return enter({ silent: true });
+  }
   if (ps.step === 'intro') renderPractice();
 }
 
 // ---------- 畫面 ----------
 
-const PRIVACY = `<p class="privacy" id="pr-privacy">隱私說明：對練內容只會即時送到 AI 產生回應，伺服器不儲存、也不記錄任何對話。
-練習紀錄（情境、部屬類型和回饋）只存在這台裝置的瀏覽器，不會上傳；逐字稿不會被保存。</p>`;
+const PRIVACY = `<p class="privacy" id="pr-privacy">隱私說明：你寫的內容只會即時送到 AI 產生回應，伺服器不儲存、也不記錄任何對話。
+練習紀錄（狀況、狀況卡和回饋）只存在這台裝置的瀏覽器，不會上傳；逐字稿不會被保存。</p>`;
 
 function noticeHtml() {
   if (!ps.notice) return '';
@@ -87,15 +89,15 @@ function noticeHtml() {
   return `<div class="notice ${ps.notice.kind}" role="alert" id="pr-notice">${title}<p>${escapeHtml(ps.notice.body)}</p></div>`;
 }
 
-function stepper(n) {
-  return `<p class="stepper">準備 ${n}／3</p>`;
+function recordsLink() {
+  const count = loadRecords(storage).length;
+  return count ? `<div class="link-row"><button type="button" class="btn ghost" data-act="records">過去的練習（${count}）</button></div>` : '';
 }
 
 function renderIntro() {
-  const records = loadRecords(storage);
   let body;
-  if (ps.status === null || ps.status === 'loading') {
-    body = '<p class="hint" id="pr-loading">正在確認練習室的狀態…</p>';
+  if (ps.status === null || ps.status === 'loading' || ps.busy === 'verify') {
+    body = '<p class="hint" id="pr-loading">正在準備練習室…</p>';
   } else if (!ps.status.ready) {
     const missing = ps.status.missing.length ? `（缺少：${ps.status.missing.map(escapeHtml).join('、')}）` : '';
     body = `<div class="notice setup" id="pr-not-ready">
@@ -107,99 +109,80 @@ function renderIntro() {
     body = `<form class="code-form" data-form="code">
       <label for="pr-code">試點期需要邀請碼</label>
       <input id="pr-code" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" value="${escapeHtml(ps.code)}" placeholder="輸入邀請碼">
-      <button type="submit" class="btn primary block" id="pr-enter" ${ps.busy ? 'disabled' : ''}>${ps.busy === 'verify' ? '確認中…' : '進入練習'}</button>
+      <button type="submit" class="btn primary block" id="pr-enter">進入練習</button>
     </form>`;
   }
   view.innerHTML = `
-    <h1>主管練習室</h1>
-    <p class="sub">先讀懂狀況，再跟 AI 扮演的部屬練一段不容易的對話，練完拿到具體回饋。</p>
+    <h1>心靈健身房</h1>
+    <p class="sub">下一場難開口的對話，先在這裡練一次。</p>
     ${noticeHtml()}
     ${body}
-    ${records.length ? `<button type="button" class="btn ghost block" data-act="records">看過去的練習（${records.length}）</button>` : ''}
+    ${recordsLink()}
     ${PRIVACY}`;
 }
 
-function choiceHtml(item, selected, act) {
-  return `<button type="button" class="choice" data-act="${act}" data-id="${item.id}" aria-pressed="${selected}">
-    <span class="choice-title">${escapeHtml(item.title)}</span>
-    <span class="choice-sub">${escapeHtml(item.summary)}</span>
-  </button>`;
-}
-
-function renderScenario() {
-  const { setup } = ps;
-  const custom = setup.scenarioId === CUSTOM_SCENARIO_ID;
-  const ready = custom ? setup.customScenario.trim().length > 0 : Boolean(setup.scenarioId);
+function renderDescribe() {
+  const busy = ps.busy === 'brief';
+  const count = charCount(ps.situation);
   view.innerHTML = `
-    ${stepper(1)}
-    <h1>想練哪一種對話？</h1>
-    <p class="sub">選一個情境，或自己描述。</p>
+    <h1>這次要談什麼？</h1>
+    <p class="sub">說說你要談的人和事。AI 會先幫你讀懂狀況，再扮演他陪你練。</p>
     ${noticeHtml()}
-    <div class="choices">
-      ${SCENARIOS.map((s) => choiceHtml(s, setup.scenarioId === s.id, 'scenario')).join('')}
-      ${choiceHtml({ id: CUSTOM_SCENARIO_ID, title: '自己描述一個情境', summary: '用幾句話說說你遇到的狀況。' }, custom, 'scenario')}
+    <label class="field" for="pr-situation"><span>你要談的人和事</span>
+      <textarea id="pr-situation" data-field="situation" rows="6" maxlength="${MAX_SITUATION_CHARS}" placeholder="例如：他來一年了，產出一直跟不上，很多事都要我細部交代。我想坦白跟他談接下來怎麼辦。" ${busy ? 'disabled' : ''}>${escapeHtml(ps.situation)}</textarea>
+      <span class="counter" data-counter="situation">${count}／${MAX_SITUATION_CHARS}</span></label>
+    <p class="hint">沒想法的話，點一個例子再改成你的狀況：</p>
+    <div class="examples" id="pr-examples">
+      ${EXAMPLES.map((e, i) => `<button type="button" class="example" data-act="example" data-index="${i}" ${busy ? 'disabled' : ''}>${escapeHtml(e.label)}</button>`).join('')}
     </div>
-    ${custom ? `<label class="field" for="pr-custom"><span>你遇到的狀況</span>
-      <textarea id="pr-custom" data-field="customScenario" rows="4" maxlength="${MAX_CHARS}" placeholder="例如：部屬開會時常常打斷別人，其他同事開始不想跟他合作。">${escapeHtml(setup.customScenario)}</textarea>
-      <span class="counter" data-counter="customScenario">${charCount(setup.customScenario)}／${MAX_CHARS}</span></label>` : ''}
-    <button type="button" class="btn primary block" data-act="to-persona" id="pr-next" ${ready ? '' : 'disabled'}>下一步</button>
-    <button type="button" class="btn ghost block" data-act="intro">回到練習室</button>`;
+    <button type="button" class="btn primary block" data-act="brief" id="pr-brief" ${busy || !ps.situation.trim() ? 'disabled' : ''}>${busy ? '正在讀懂狀況…' : '讀懂狀況'}</button>
+    ${recordsLink()}`;
 }
 
-function renderPersona() {
-  view.innerHTML = `
-    ${stepper(2)}
-    <h1>這位部屬是什麼樣的人？</h1>
-    <p class="sub">${escapeHtml(scenarioTitle(ps.setup))}</p>
-    <div class="choices">${PERSONAS.map((p) => choiceHtml(p, ps.setup.personaId === p.id, 'persona')).join('')}</div>
-    <button type="button" class="btn primary block" data-act="to-context" id="pr-next" ${ps.setup.personaId ? '' : 'disabled'}>下一步</button>
-    <button type="button" class="btn ghost block" data-act="to-scenario">上一步</button>`;
+function briefHtml(brief) {
+  return `<div class="brief" id="pr-brief-card">
+    ${BRIEF_FIELDS.filter((f) => brief[f.id]).map((f) => `<section class="${f.id === 'risk' ? 'risk' : ''}" data-brief="${f.id}">
+      <h2>${escapeHtml(f.label)}</h2><p>${escapeHtml(brief[f.id])}</p></section>`).join('')}
+  </div>`;
 }
 
-function renderContext() {
-  const fields = CONTEXT_QUESTIONS.map((q) => {
-    const value = ps.setup.context[q.id] ?? '';
-    return `<label class="field" for="pr-ctx-${q.id}"><span>${escapeHtml(q.label)}</span>
-      <textarea id="pr-ctx-${q.id}" data-field="context.${q.id}" rows="3" maxlength="${MAX_CONTEXT_CHARS}" placeholder="${escapeHtml(q.placeholder)}">${escapeHtml(value)}</textarea>
-      <span class="counter" data-counter="context.${q.id}">${charCount(value)}／${MAX_CONTEXT_CHARS}</span></label>`;
-  }).join('');
+function renderBrief() {
+  const { brief } = ps.setup;
   view.innerHTML = `
-    ${stepper(3)}
-    <h1>先讀懂狀況</h1>
-    <p class="sub">回答越具體，部屬演得越像。不想寫的可以留白。</p>
-    ${noticeHtml()}
-    ${fields}
+    <h1 id="pr-brief-title">${escapeHtml(brief.title)}</h1>
+    <p class="sub">開口前，先看看這張狀況卡。</p>
+    ${briefHtml(brief)}
     <button type="button" class="btn primary block" data-act="start" id="pr-start">開始對練</button>
-    <button type="button" class="btn ghost block" data-act="to-persona">上一步</button>`;
+    <button type="button" class="btn ghost block" data-act="describe">修改描述</button>`;
 }
 
 function bubble(m) {
-  const who = m.role === 'manager' ? '你' : '部屬';
+  const who = m.role === 'manager' ? '你' : '他';
   return `<div class="msg ${m.role}"><span class="msg-who">${who}</span><p>${escapeHtml(m.text)}</p></div>`;
 }
 
 function renderChat() {
-  const persona = getPersona(ps.setup.personaId);
+  const { brief } = ps.setup;
   const used = turnsUsed();
   const full = used >= MAX_TURNS;
   const disabled = Boolean(ps.busy) || full;
   const busyLine = ps.busy === 'turn'
-    ? '<p class="typing" id="pr-typing">部屬正在想怎麼回…</p>'
+    ? '<p class="typing" id="pr-typing">他正在想怎麼回…</p>'
     : ps.busy === 'feedback' ? '<p class="typing" id="pr-typing">教練正在整理回饋…</p>' : '';
   view.innerHTML = `
     <div class="chat-head">
-      <p class="chat-title">${escapeHtml(scenarioTitle(ps.setup))}・${escapeHtml(persona.title)}</p>
+      <p class="chat-title">${escapeHtml(brief.title)}</p>
       <p class="chat-count" id="pr-turns">已說 ${used}／${MAX_TURNS} 句</p>
     </div>
     <div class="chat" id="pr-chat" aria-live="polite">
-      <p class="stage">${escapeHtml(persona.opening)}</p>
+      <p class="stage">${escapeHtml(brief.opening)}</p>
       ${ps.messages.map(bubble).join('')}
       ${busyLine}
     </div>
     ${noticeHtml()}
     ${full ? `<p class="hint" id="pr-full">這次對練的 ${MAX_TURNS} 句都用上了，來看看回饋吧。</p>` : `
     <form class="composer" data-form="say">
-      <label class="visually-hidden" for="pr-say">你要對部屬說的話</label>
+      <label class="visually-hidden" for="pr-say">你要對他說的話</label>
       <textarea id="pr-say" data-field="draft" rows="3" maxlength="${MAX_CHARS}" placeholder="你想怎麼開口？" ${disabled ? 'disabled' : ''}>${escapeHtml(ps.draft)}</textarea>
       <div class="composer-row">
         <span class="counter" data-counter="draft">${charCount(ps.draft)}／${MAX_CHARS}</span>
@@ -215,6 +198,7 @@ function listHtml(items) {
 
 function feedbackHtml(fb) {
   return `
+    ${fb.riskNote ? `<section class="fb risk" id="pr-fb-risk"><h2>實際談之前先確認</h2><p>${escapeHtml(fb.riskNote)}</p></section>` : ''}
     <section class="fb" id="pr-fb-feelings">
       <h2>他當下可能的感受</h2>
       <div class="fb-two">
@@ -234,14 +218,12 @@ function feedbackHtml(fb) {
 }
 
 function renderFeedback() {
-  const persona = getPersona(ps.setup.personaId);
   view.innerHTML = `
     <h1>這次的回饋</h1>
-    <p class="sub">${escapeHtml(scenarioTitle(ps.setup))}・${escapeHtml(persona.title)}</p>
+    <p class="sub">${escapeHtml(ps.setup.brief.title)}</p>
     ${feedbackHtml(ps.feedback)}
-    <button type="button" class="btn primary block" data-act="retry" id="pr-retry">同一情境、同一位部屬再練一次</button>
-    <button type="button" class="btn ghost block" data-act="to-scenario">換一個情境</button>
-    <button type="button" class="btn ghost block" data-act="records">看過去的練習</button>
+    <button type="button" class="btn primary block" data-act="retry" id="pr-retry">用同樣的狀況再練一次</button>
+    <button type="button" class="btn ghost block" data-act="new">練另一件事</button>
     <p class="hint">這份回饋已經存在這台裝置的瀏覽器裡。</p>`;
 }
 
@@ -251,16 +233,16 @@ function renderRecords() {
   const records = loadRecords(storage);
   const items = records.map((r) => `<article class="record">
     <time datetime="${escapeHtml(r.at)}">${dateFormat.format(new Date(r.at))}</time>
-    <p class="record-title">${escapeHtml(scenarioTitle(r))}・${escapeHtml(getPersona(r.personaId).title)}</p>
-    ${r.customScenario ? `<p class="hint">${escapeHtml(r.customScenario)}</p>` : ''}
+    <p class="record-title">${escapeHtml(r.title)}</p>
+    ${r.situation ? `<p class="hint">${escapeHtml(r.situation)}</p>` : ''}
     <details><summary>看回饋</summary>${feedbackHtml(r.feedback)}</details>
-    <button type="button" class="btn ghost" data-act="retry-record" data-id="${escapeHtml(r.id)}">用這個設定再練一次</button>
+    ${setupFromRecord(r) ? `<button type="button" class="btn ghost" data-act="retry-record" data-id="${escapeHtml(r.id)}">用這個狀況再練一次</button>` : ''}
   </article>`).join('');
   view.innerHTML = `
     <h1>過去的練習</h1>
     <p class="sub">${records.length ? `一共 ${records.length} 次練習，只存在這台裝置。` : '這裡還是空的。'}</p>
     ${items}
-    <button type="button" class="btn primary block" data-act="intro">回到練習室</button>`;
+    <button type="button" class="btn primary block" data-act="home">回到練習</button>`;
 }
 
 function renderCrisis() {
@@ -270,16 +252,15 @@ function renderCrisis() {
       <p>${escapeHtml(CRISIS_NOTICE.body)}</p>
       <a class="btn primary block call" href="tel:${CRISIS_NOTICE.hotline}">撥打 ${CRISIS_NOTICE.hotline} 安心專線</a>
     </div>
-    <button type="button" class="btn ghost block" data-act="intro">回到練習室</button>`;
+    <button type="button" class="btn ghost block" data-act="home">回到練習</button>`;
 }
 
 export function renderPractice() {
   if (ps.status === null) loadStatus();
   const renderers = {
     intro: renderIntro,
-    scenario: renderScenario,
-    persona: renderPersona,
-    context: renderContext,
+    describe: renderDescribe,
+    brief: renderBrief,
     chat: renderChat,
     feedback: renderFeedback,
     records: renderRecords,
@@ -287,6 +268,7 @@ export function renderPractice() {
   };
   // 還沒通過邀請碼就只能看說明與過去的紀錄。
   if (!ps.codeOk && !['intro', 'records', 'crisis'].includes(ps.step)) ps.step = 'intro';
+  if (['brief', 'chat'].includes(ps.step) && !ps.setup) ps.step = 'describe';
   renderers[ps.step]();
 }
 
@@ -299,6 +281,11 @@ function stopForCrisis() {
   goStep('crisis');
 }
 
+function showUnlawful(notice = UNLAWFUL_NOTICE) {
+  ps.notice = { kind: 'unlawful', ...notice };
+  rerender({ scroll: true });
+}
+
 function handleFailure(result) {
   if (result.error === 'bad_code') {
     ps.codeOk = false;
@@ -308,9 +295,9 @@ function handleFailure(result) {
   ps.notice = { kind: 'error', body: result.message };
 }
 
-async function enter() {
+async function enter({ silent = false } = {}) {
   const input = view.querySelector('#pr-code');
-  ps.code = input ? input.value.trim() : ps.code;
+  if (input) ps.code = input.value.trim();
   if (!ps.code) {
     ps.notice = { kind: 'error', body: '請先輸入邀請碼。' };
     return rerender({ focus: '#pr-code' });
@@ -321,21 +308,42 @@ async function enter() {
   const result = await api.verify(ps.code);
   ps.busy = '';
   if (!result.ok) {
-    handleFailure(result);
+    if (!silent || result.error !== 'bad_code') handleFailure(result);
     return rerender({ focus: '#pr-code' });
   }
   saveCode(storage, ps.code);
   ps.codeOk = true;
-  goStep('scenario');
+  if (ps.pendingRetry) {
+    ps.setup = ps.pendingRetry;
+    ps.pendingRetry = null;
+    return start();
+  }
+  if (ps.step === 'intro') goStep('describe');
+  else renderPractice();
+}
+
+async function makeBrief() {
+  const situation = ps.situation.trim();
+  if (!situation || ps.busy) return;
+  const flagged = screen({ situation }, []);
+  if (flagged === 'crisis') return stopForCrisis();
+  if (flagged === 'unlawful') return showUnlawful();
+  ps.busy = 'brief';
+  ps.notice = null;
+  rerender();
+  const result = await api.brief(ps.code, situation);
+  ps.busy = '';
+  if (result.ok && result.type === 'brief') {
+    ps.setup = { situation, brief: result.brief };
+    return goStep('brief');
+  }
+  if (result.ok && result.type === 'crisis') return stopForCrisis();
+  if (result.ok && result.type === 'unlawful') return showUnlawful(result.notice);
+  handleFailure(result);
+  rerender();
 }
 
 function start() {
-  const flagged = screen(ps.setup, []);
-  if (flagged === 'crisis') return stopForCrisis();
-  if (flagged === 'unlawful') {
-    ps.notice = { kind: 'unlawful', ...UNLAWFUL_NOTICE };
-    return rerender({ scroll: true });
-  }
   ps.messages = [];
   ps.draft = '';
   ps.feedback = null;
@@ -352,10 +360,7 @@ async function say() {
   const messages = [...ps.messages, { role: 'manager', text }];
   const flagged = screen(ps.setup, messages);
   if (flagged === 'crisis') return stopForCrisis();
-  if (flagged === 'unlawful') {
-    ps.notice = { kind: 'unlawful', ...UNLAWFUL_NOTICE };
-    return rerender({ scroll: true });
-  }
+  if (flagged === 'unlawful') return showUnlawful();
 
   ps.messages = messages;
   ps.draft = '';
@@ -372,8 +377,8 @@ async function say() {
   ps.messages = messages.slice(0, -1);
   ps.draft = text;
   if (result.ok && result.type === 'crisis') return stopForCrisis();
-  if (result.ok && result.type === 'unlawful') ps.notice = { kind: 'unlawful', ...result.notice };
-  else handleFailure(result);
+  if (result.ok && result.type === 'unlawful') return showUnlawful(result.notice);
+  handleFailure(result);
   rerender({ scroll: true });
 }
 
@@ -391,69 +396,60 @@ async function finish() {
     return goStep('feedback');
   }
   if (result.ok && result.type === 'crisis') return stopForCrisis();
-  if (result.ok && result.type === 'unlawful') ps.notice = { kind: 'unlawful', ...result.notice };
-  else handleFailure(result);
+  if (result.ok && result.type === 'unlawful') return showUnlawful(result.notice);
+  handleFailure(result);
   rerender({ scroll: true });
-}
-
-function setField(field, value) {
-  if (field === 'draft') ps.draft = value;
-  else if (field === 'customScenario') ps.setup.customScenario = value;
-  else if (field.startsWith('context.')) ps.setup.context[field.slice(8)] = value;
 }
 
 export function handlePracticeClick(event) {
   const target = event.target.closest('button[data-act]');
   if (!target || target.disabled) return;
-  const { act, id } = target.dataset;
-  if (act === 'intro') {
+  const { act, id, index } = target.dataset;
+  if (act === 'home') {
     ps.messages = [];
-    goStep('intro');
+    goStep(ps.codeOk ? 'describe' : 'intro');
   } else if (act === 'records') goStep('records');
-  else if (act === 'scenario') {
-    ps.setup.scenarioId = id;
-    rerender({ focus: id === CUSTOM_SCENARIO_ID ? '#pr-custom' : `.choice[data-id="${id}"]` });
-  } else if (act === 'persona') {
-    ps.setup.personaId = id;
-    rerender({ focus: `.choice[data-id="${id}"]` });
-  } else if (act === 'to-scenario') goStep('scenario');
-  else if (act === 'to-persona') goStep('persona');
-  else if (act === 'to-context') goStep('context');
-  else if (act === 'start') start();
-  else if (act === 'finish') finish();
-  else if (act === 'retry') start();
+  else if (act === 'example') {
+    ps.situation = EXAMPLES[Number(index)]?.text ?? ps.situation;
+    rerender({ focus: '#pr-situation' });
+  } else if (act === 'brief') makeBrief();
+  else if (act === 'describe') goStep('describe');
+  else if (act === 'start' || act === 'retry') start();
+  else if (act === 'new') {
+    ps.situation = '';
+    ps.setup = null;
+    goStep('describe');
+  } else if (act === 'finish') finish();
   else if (act === 'retry-record') {
-    const record = loadRecords(storage).find((r) => r.id === id);
-    if (!record) return;
-    ps.setup = setupFromRecord(record);
+    const setup = setupFromRecord(loadRecords(storage).find((r) => r.id === id));
+    if (!setup) return;
+    ps.situation = setup.situation;
     if (!ps.codeOk) {
-      ps.notice = { kind: 'error', body: '先輸入邀請碼，就能用這個設定再練一次。' };
-      ps.pendingRetry = true;
-      return goStepKeepNotice('intro');
+      ps.pendingRetry = setup;
+      ps.step = 'intro';
+      ps.notice = { kind: 'error', body: '先輸入邀請碼，就能用這個狀況再練一次。' };
+      renderPractice();
+      return window.scrollTo(0, 0);
     }
+    ps.setup = setup;
     start();
   }
-}
-
-function goStepKeepNotice(step) {
-  ps.step = step;
-  renderPractice();
-  window.scrollTo(0, 0);
 }
 
 export function handlePracticeInput(event) {
   const field = event.target.dataset?.field;
   if (!field) return;
-  setField(field, event.target.value);
+  if (field === 'draft') ps.draft = event.target.value;
+  else if (field === 'situation') ps.situation = event.target.value;
   const counter = view.querySelector(`[data-counter="${field}"]`);
   if (counter) counter.textContent = counter.textContent.replace(/^\d+/, String(charCount(event.target.value)));
   if (field === 'draft') {
     const send = view.querySelector('#pr-send');
     if (send) send.disabled = Boolean(ps.busy) || !ps.draft.trim();
   }
-  if (field === 'customScenario') {
-    const next = view.querySelector('#pr-next');
-    if (next) next.disabled = !ps.setup.customScenario.trim();
+  if (field === 'situation') {
+    const next = view.querySelector('#pr-brief');
+    if (next) next.disabled = Boolean(ps.busy) || !ps.situation.trim();
   }
 }
 
@@ -461,15 +457,8 @@ export async function handlePracticeSubmit(event) {
   const form = event.target.closest('form[data-form]');
   if (!form) return;
   event.preventDefault();
-  if (form.dataset.form === 'code') {
-    await enter();
-    if (ps.codeOk && ps.pendingRetry) {
-      ps.pendingRetry = false;
-      start();
-    }
-  } else if (form.dataset.form === 'say') {
-    await say();
-  }
+  if (form.dataset.form === 'code') await enter();
+  else if (form.dataset.form === 'say') await say();
 }
 
 // 讓 Enter 送出、Shift+Enter 換行（手機鍵盤的換行鍵維持換行）。

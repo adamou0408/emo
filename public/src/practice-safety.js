@@ -1,4 +1,4 @@
-// 主管練習室的安全判斷：危機訊號與可能違法的處理方式。
+// 心靈健身房的安全判斷：危機訊號與可能違法的處理方式。
 // 前端在開始對練前先看一次，後端每次呼叫 AI 前再看一次（不信任前端）。
 // 關鍵字只是第一層；AI 也會回報它判斷到的訊號（見 server/coach.js）。
 
@@ -46,12 +46,10 @@ export function hasUnlawfulIntent(...texts) {
   return matches(UNLAWFUL_PATTERNS, texts.flat());
 }
 
-// 主管自己寫的文字：自訂情境、讀懂狀況的回答、對練中說的話。
+// 主管自己寫的文字：描述的狀況、對練中說的話。
 export function managerTexts(setup = {}, messages = []) {
-  const context = setup.context && typeof setup.context === 'object' ? Object.values(setup.context) : [];
   return [
-    setup.customScenario,
-    ...context,
+    setup.situation,
     ...messages.filter((m) => m && m.role === 'manager').map((m) => m.text),
   ].filter((t) => typeof t === 'string' && t.length > 0);
 }

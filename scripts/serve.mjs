@@ -62,5 +62,5 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     practice = (request, action) => handlePractice(request, process.env, action);
   }
   await startServer(PORT, { practice });
-  console.log(`情緒小夥伴：http://localhost:${PORT}${practice ? '（主管練習室已接上 Claude）' : ''}`);
+  console.log(`心靈健身房：http://localhost:${PORT}${practice ? '（已接上 Claude）' : ''}`);
 }
