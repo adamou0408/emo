@@ -55,14 +55,14 @@
 ## 部署
 
 - Cloudflare Pages 專案 `emo-aixmoment`，已連結 GitHub `adamou0408/emo`：
-  正式分支 `main`，其他分支自動產生預覽。不用建置，輸出目錄 `public`。
+  正式分支 `main`，其他分支自動產生預覽。建置指令 `npm ci`（只為了安裝 Functions 的依賴），輸出目錄 `public`。
 - 正式網址：`https://emo.aixmoment.com`（也可用 `https://emo-aixmoment.pages.dev`）。
 - Cloudflare 帳戶 ID：`6e40aedcc7035de56fd9ed7a02b0ef77`。
 - `emo` 雲端環境存了 `api.cloudflare.com` 的 Cloudflare Pages token，由網路代理自動帶入，
   curl 時不用自己加 Authorization 標頭。
 - 查部署狀態：
   `curl -s https://api.cloudflare.com/client/v4/accounts/6e40aedcc7035de56fd9ed7a02b0ef77/pages/projects/emo-aixmoment/deployments`
-- `functions/` 由 Cloudflare Pages 在部署時用 wrangler 打包；`package-lock.json` 存在時 Pages 會先 `npm ci`，
-  SDK 才會被打包進去。本機可用 `npx wrangler pages functions build` 確認能打包。
+- `functions/` 由 Cloudflare Pages 在部署時用 wrangler 打包。Pages 沒有建置指令時不會安裝依賴，
+  所以專案的建置指令設為 `npm ci`（2026-11-27 經 API 設定），SDK 才會被打包進去；輸出目錄仍是 `public`。本機可用 `npx wrangler pages functions build` 確認能打包。
 - 不要用 `wrangler pages deploy`：直接上傳會被網路代理擋下（它會換掉上傳用的臨時憑證）。一律透過 git push 部署。
 - `public/_headers` 設定 Cloudflare Pages 的回應標頭。
