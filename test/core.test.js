@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-import { COMPANIONS, TIERS } from '../src/companions.js';
+import { COMPANIONS, TIERS } from '../public/src/companions.js';
 import {
   ENTRIES_KEY,
   NAMES_KEY,
@@ -15,7 +15,7 @@ import {
   pickResponse,
   renameCompanion,
   tierFor,
-} from '../src/core.js';
+} from '../public/src/core.js';
 
 function fakeStorage(initial = {}) {
   const map = new Map(Object.entries(initial));
@@ -151,7 +151,7 @@ test('名稱資料壞掉時用預設名', () => {
 
 test('畫面文案沒有連續天數或懲罰式用語', () => {
   const banned = ['連續', '天數', 'streak', '中斷', '負面', '失敗', '懲罰', '偷懶', '錯過', '落後'];
-  const files = ['index.html', 'src/app.js', 'src/companions.js'];
+  const files = ['public/index.html', 'public/src/app.js', 'public/src/companions.js'];
   for (const file of files) {
     const text = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8').toLowerCase();
     for (const word of banned) {

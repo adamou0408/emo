@@ -25,10 +25,11 @@ npm run smoke    # 手機尺寸瀏覽器跑完整流程並截圖（需要 Playwr
 
 ## 結構
 
-- `src/companions.js`：小夥伴與回應文案
-- `src/core.js`：挑選回應、存取記錄、改名（不碰 DOM）
-- `src/app.js`：畫面
+- `public/`：對外公開的網站（只有這裡會被部署）
+- `public/src/companions.js`：小夥伴與回應文案
+- `public/src/core.js`：挑選回應、存取記錄、改名（不碰 DOM）
+- `public/src/app.js`：畫面
 - `test/`：測試
 - `scripts/`：本機伺服器與瀏覽器流程測試
-- `sw.js`、`manifest.webmanifest`、`icons/`：可安裝與離線
-- `_headers`：Cloudflare Pages 回應標頭
+- `public/sw.js`、`public/manifest.webmanifest`、`public/icons/`：可安裝與離線
+- `public/_headers`：Cloudflare Pages 回應標頭

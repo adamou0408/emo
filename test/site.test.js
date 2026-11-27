@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 
-const root = new URL('../', import.meta.url);
+const root = new URL('../public/', import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), 'utf8');
 
 test('manifest 是合法 JSON，圖示檔都存在', () => {

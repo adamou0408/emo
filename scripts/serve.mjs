@@ -4,7 +4,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+const ROOT = resolve(fileURLToPath(new URL('../public', import.meta.url)));
 const PORT = Number(process.env.PORT) || 5173;
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
