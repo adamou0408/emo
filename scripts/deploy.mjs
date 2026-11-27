@@ -9,8 +9,8 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const PROJECT = 'emo';
-const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
+const PROJECT = 'emo-companions';
+const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '6e40aedcc7035de56fd9ed7a02b0ef77';
 const WRANGLER = 'wrangler@4.169.0';
 const SITE_FILES = ['index.html', 'styles.css', 'sw.js', 'manifest.webmanifest', '_headers', 'icons', 'src'];
 
