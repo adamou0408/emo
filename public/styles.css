@@ -141,6 +141,20 @@ textarea, .code-form input {
 .msg-who { display: block; font-size: .75rem; color: var(--ink-soft); font-weight: 700; }
 .msg.manager { align-self: flex-end; border-color: var(--accent); border-bottom-right-radius: 4px; }
 .msg.report { align-self: flex-start; border-bottom-left-radius: 4px; }
+.msg.retracted { opacity: .55; border-style: dashed; }
+.msg.retracted p { text-decoration: line-through; text-decoration-color: var(--ink-soft); }
+.msg-tag { margin-left: 6px; font-weight: 400; }
+.retract {
+  display: block;
+  margin: 6px 0 0 auto;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  font-size: .85rem;
+  font-weight: 700;
+}
 .composer-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 8px; }
 .composer-row .counter { margin: 0; }
 .fb {

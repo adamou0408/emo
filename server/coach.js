@@ -130,6 +130,8 @@ export function validateDrill(body) {
 }
 
 // 對話必須由主管開始、主管與部屬輪流；mode 為 'turn' 時最後一句要是主管。
+// 「這句重練」的那一組（主管一句＋他的回覆）標 retracted: true：
+// 他不會再看到，但回饋時拿來對照。重練掉的句子也算回合（每句都呼叫過一次 AI）。
 export function validateMessages(messages, mode) {
   if (!Array.isArray(messages)) throw new RequestError(400, 'bad_request', MESSAGES.badRequest);
   const clean = [];
@@ -141,7 +143,12 @@ export function validateMessages(messages, mode) {
     const text = m.text.trim();
     if (!text) throw new RequestError(400, 'bad_request', MESSAGES.badRequest);
     if (charCount(text) > MAX_CHARS) throw new RequestError(400, 'too_long', MESSAGES.tooLong);
-    clean.push({ role, text });
+    clean.push(m.retracted === true ? { role, text, retracted: true } : { role, text });
+  }
+  for (let i = 0; i < clean.length; i += 2) {
+    if (Boolean(clean[i].retracted) !== Boolean(clean[i + 1]?.retracted)) {
+      throw new RequestError(400, 'bad_request', MESSAGES.badRequest);
+    }
   }
   const turns = clean.filter((m) => m.role === 'manager').length;
   if (turns > MAX_TURNS) throw new RequestError(400, 'too_many_turns', MESSAGES.tooManyTurns);
@@ -231,6 +238,8 @@ ${setupText(setup)}
 - 你是教練，不是審判。不要替任何人貼標籤（例如「霸凌」「情緒勒索」「有毒」「控制狂」），只描述具體的行為和它可能造成的影響。
 - 要具體：引用或指出主管實際說過的話。該指出問題時直接指出，不要只附和，也不要只用反問帶過。
 - 用台灣慣用的繁體中文，對主管用「你」稱呼，對部屬用「他」。每一點 1 到 3 句。
+- 逐字稿裡標「〔重練掉〕」的兩行，是主管說完後選擇重練、換個說法的嘗試，部屬後來沒有聽到。
+  有重練時，請把原本的說法和新的說法拿來對照，說出差在哪裡、他的反應怎麼跟著變。
 
 ## 要寫的內容
 - feelings.intent：主管這段對話想傳達或達成的意圖（站在主管的角度寫）。
@@ -407,14 +416,17 @@ export function buildContributeRequest(situation) {
 export function buildTurnRequest(setup, messages) {
   return {
     ...baseParams(buildRoleplaySystem(setup), TURN_EFFORT, TURN_SCHEMA),
-    messages: messages.map((m) => (m.role === 'manager'
+    // 重練掉的那組他看不到：換個說法時，他從重練前的狀態接話。
+    messages: messages.filter((m) => !m.retracted).map((m) => (m.role === 'manager'
       ? { role: 'user', content: m.text }
       : { role: 'assistant', content: JSON.stringify({ signal: 'none', reply: m.text }) })),
   };
 }
 
 export function transcriptText(messages) {
-  return messages.map((m) => `${m.role === 'manager' ? '主管' : '部屬'}：${m.text}`).join('\n');
+  return messages
+    .map((m) => `${m.retracted ? '〔重練掉〕' : ''}${m.role === 'manager' ? '主管' : '部屬'}：${m.text}`)
+    .join('\n');
 }
 
 export function buildFeedbackRequest(setup, messages) {

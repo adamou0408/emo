@@ -188,9 +188,28 @@ function renderBrief() {
     <button type="button" class="btn ghost block" data-act="describe">修改描述</button>`;
 }
 
-function bubble(m) {
+// 只有最新一組（你說、他回）可以重練；不能重抽他的回覆。重練掉的句子也算回合。
+function canRetract() {
+  const last = ps.messages[ps.messages.length - 1];
+  return !ps.busy && last?.role === 'report' && !last.retracted && turnsUsed() < MAX_TURNS;
+}
+
+function bubble(m, i) {
   const who = m.role === 'manager' ? '你' : '他';
-  return `<div class="msg ${m.role}"><span class="msg-who">${who}</span><p>${escapeHtml(m.text)}</p></div>`;
+  const tag = m.retracted ? '<span class="msg-tag">重練掉的</span>' : '';
+  const redo = m.role === 'manager' && i === ps.messages.length - 2 && canRetract()
+    ? '<button type="button" class="retract" data-act="retract" id="pr-retract">這句重練</button>' : '';
+  return `<div class="msg ${m.role}${m.retracted ? ' retracted' : ''}"><span class="msg-who">${who}${tag}</span><p>${escapeHtml(m.text)}</p>${redo}</div>`;
+}
+
+// 重練最新一句：原句留著、劃線；他不記得那一組，回饋會拿來對照；原句放回輸入框讓你改。
+function retract() {
+  if (!canRetract()) return;
+  const n = ps.messages.length;
+  ps.draft = ps.messages[n - 2].text;
+  ps.messages = ps.messages.map((m, i) => (i >= n - 2 ? { ...m, retracted: true } : m));
+  ps.notice = null;
+  rerender({ focus: '#pr-say', scroll: true });
 }
 
 function renderChat() {
@@ -211,6 +230,7 @@ function renderChat() {
       ${ps.messages.map(bubble).join('')}
       ${busyLine}
     </div>
+    ${ps.messages.some((m) => m.retracted) ? '<p class="hint">重練掉的那句他不會記得，但教練會拿來跟新的說法對照。</p>' : ''}
     ${noticeHtml()}
     ${full ? `<p class="hint" id="pr-full">這次對練的 ${MAX_TURNS} 句都用上了，來看看回饋吧。</p>` : `
     <form class="composer" data-form="say">
@@ -553,6 +573,7 @@ export function handlePracticeClick(event) {
     ps.setup = null;
     goStep('describe');
   } else if (act === 'finish') finish();
+  else if (act === 'retract') retract();
   else if (act === 'drill' || act === 'drill-next') startDrill();
   else if (act === 'drill-full') {
     ps.situation = drillSituation(getDrill(ps.drill.id));
