@@ -9,7 +9,31 @@ import {
   renameCompanion,
 } from './core.js';
 
-const storage = window.localStorage;
+// localStorage 在無痕模式或被封鎖時可能丟錯；退回記憶體，畫面照常運作。
+const storage = (() => {
+  const memory = new Map();
+  let real = null;
+  try {
+    real = window.localStorage;
+    real.getItem('emo.probe');
+  } catch {
+    real = null;
+  }
+  return {
+    getItem(key) {
+      try {
+        if (real) return real.getItem(key);
+      } catch {}
+      return memory.has(key) ? memory.get(key) : null;
+    },
+    setItem(key, value) {
+      memory.set(key, String(value));
+      try {
+        if (real) real.setItem(key, value);
+      } catch {}
+    },
+  };
+})();
 const view = document.getElementById('view');
 const tabs = [...document.querySelectorAll('.tab')];
 
@@ -228,3 +252,7 @@ for (const tab of tabs) {
 }
 
 render();
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}

@@ -1,0 +1,12 @@
+# Cloudflare Pages 回應標頭
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Cache-Control: public, max-age=0, must-revalidate
+
+/sw.js
+  Cache-Control: no-cache
+
+/icons/*
+  Cache-Control: public, max-age=604800
