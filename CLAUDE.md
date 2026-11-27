@@ -10,7 +10,11 @@ AI 扮演那位部屬陪練 → 教練回饋。網址 https://emo.aixmoment.com�
 - **已刪除，不要加回來**：情緒小夥伴的「開門」記錄、情緒記錄頁、改名、底部選單、固定情境清單、部屬類型選單、
   三題讀懂狀況表單。理由：沒有證據證明使用者需要；真實情況比任何固定選項都具體，由 AI 依描述現場生成更貼近。
   舊程式碼在 git 歷史裡（commit `e452e02` 之前）。
-- 情緒的理念沒有消失，而是內建在流程裡：狀況卡和回饋都把「意圖」和「影響」分開，看見雙方的感受。
+- 情緒的理念沒有消失，而是變成這個產品的「語言」和「內容」，不是第二個功能：
+  - 狀況卡標出「他的小夥伴」，回饋標出「你的小夥伴」在哪一句出現、它想保護什麼；意圖和影響分開寫。
+  - `companions.html` 是公開的「情緒小夥伴圖鑑」（不需要邀請碼），是內容入口：每張卡有「帶著這個情境去練練看」，
+    以 `/?situation=` 把例子帶進描述框。衡量它的方式是有多少人從圖鑑點進去練。
+  - 社群貼文系列（Threads／LinkedIn）由使用者經營，內容放在 Claude Docs，不放進 repo。
 - 例子（`EXAMPLES`）只是讓人不用面對空白框的起點，點了會填進描述框，可以再改。
 - 衡量的是「有沒有真的去談、談得比較好」，不是使用次數。
 
@@ -29,6 +33,8 @@ AI 扮演那位部屬陪練 → 教練回饋。網址 https://emo.aixmoment.com�
 - 唯一的 npm 依賴是後端用的官方 `@anthropic-ai/sdk`。前端不 import 它。
 - 對外公開的網站檔案都在 `public/`，只有這個資料夾會被部署。測試、腳本、文件放在外面。
 - `public/src/app.js`：進入點（儲存空間、事件轉接）。`public/src/practice-view.js`：所有畫面與流程。
+- `public/src/companions.js`：六位情緒小夥伴（名字、造型、保護什麼、職場上的樣子、練習情境）。圖鑑頁、狀況卡、回饋共用；
+  `public/companions.html` + `public/src/companions-page.js` 是圖鑑頁。
 - `public/src/practice-data.js`：上限（12 回合、每則 500 字、描述 600 字）、狀況卡欄位、例子。前後端共用。
 - `public/src/practice-safety.js`：危機與違法意圖的關鍵字判斷與提醒文案。前後端共用。
 - `public/src/practice.js`：練習紀錄（`emo.practice.v2`，舊版 v1 唯讀相容）、邀請碼、呼叫後端（不碰 DOM）。
@@ -39,8 +45,9 @@ AI 扮演那位部屬陪練 → 教練回饋。網址 https://emo.aixmoment.com�
 - 模型：`claude-opus-5-5`（Claude Opus 5.5）。理由：claude-api skill 的預設就是它，角色扮演要能細膩地依主管語氣
   調整反應、回饋要具體又不貼標籤，需要最好的判斷力；價格比上一代 Opus 低。參數：
   - 思考用 adaptive（Opus 5.5 不能關閉思考）；狀況卡 effort `medium`，對練回合 `low`（要快），回饋 `high`（品質優先）。
-  - 三種請求都用結構化輸出（`output_config.format` JSON schema）：狀況卡回 `{signal, title, person, state, blind_spot, risk, opening}`，
-    對練回 `{signal, reply}`，`signal` 讓 AI 回報危機或違法意圖；回饋回固定欄位加 `risk_note`。
+  - 三種請求都用結構化輸出（`output_config.format` JSON schema）：狀況卡回 `{signal, title, person, state, blind_spot, risk, opening, companion}`，
+    對練回 `{signal, reply}`，`signal` 讓 AI 回報危機或違法意圖；回饋回固定欄位加 `risk_note` 與 `companion {id, note}`。
+    `companion` 是小夥伴 id 的 enum；解析時不合法就省略，不影響其他內容。
   - 拒答備援：`betas: ['server-side-fallback-2026-07-01']` + `fallbacks: 'default'`，仍拒答時回友善訊息。
   - system prompt 加 `cache_control`，同一次對練的後續回合可以命中快取。
 - 環境變數（Cloudflare Pages 專案設定，Production 和 Preview 都要設，用加密的 Secret）：

@@ -55,7 +55,10 @@ test('畫面文案沒有連續天數或懲罰式用語', () => {
   const banned = ['連續', '天數', 'streak', '中斷', '負面', '失敗', '懲罰', '偷懶', '錯過', '落後'];
   const files = [
     'public/index.html',
+    'public/companions.html',
     'public/src/app.js',
+    'public/src/companions.js',
+    'public/src/companions-page.js',
     'public/src/practice-view.js',
     'public/src/practice-data.js',
     'public/src/practice-safety.js',

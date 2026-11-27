@@ -7,6 +7,8 @@
 3. AI 扮演那位部屬陪你練，最多 12 句。
 4. 拿到教練回饋：意圖與影響、做得好與可以調整的地方、換個說法、下次可以試的做法。
 
+公開的「情緒小夥伴圖鑑」在 `/companions.html`：六種情緒在職場上想保護什麼、出現在別人身上時的樣子，每張卡都能帶著情境直接去練。
+
 後端不儲存對話；練習紀錄只存在你的瀏覽器。需要 Cloudflare 環境變數 `ANTHROPIC_API_KEY` 與 `ACCESS_CODE`（試點邀請碼）。
 
 正式網址：https://emo.aixmoment.com（手機可「加到主畫面」）
@@ -28,6 +30,7 @@ npm run smoke    # 手機尺寸瀏覽器跑完整流程並截圖（需要 Playwr
 
 - `public/`：對外公開的網站（只有這裡會被部署）
 - `public/src/app.js`：進入點；`public/src/practice-view.js`：畫面與流程
+- `public/companions.html`、`public/src/companions*.js`：情緒小夥伴與圖鑑頁
 - `public/src/practice-data.js`、`practice-safety.js`、`practice.js`：上限與例子、安全判斷、紀錄與呼叫後端
 - `server/coach.js`、`functions/api/practice/[action].js`：後端（Cloudflare Pages Functions）
 - `test/`：測試

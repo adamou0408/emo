@@ -94,6 +94,7 @@ const PORT = 5174;
       for (const id of ['person', 'state', 'blindSpot']) {
         assert.ok(await page.locator(`[data-brief="${id}"]`).isVisible(), `狀況卡缺少 ${id}`);
       }
+      assert.match(await page.locator('[data-brief="state"] .who-chip').textContent(), /他的小旋（焦慮）/);
       await shot('3-brief');
       await noOverflow('狀況卡');
 
@@ -120,6 +121,7 @@ const PORT = 5174;
       }
       assert.equal(await page.locator('#pr-fb-strengths li').count(), 2);
       assert.match(await page.locator('#pr-fb-rewrite').textContent(), /你到底為什麼又晚了/);
+      assert.match(await page.locator('#pr-fb-companion').textContent(), /你的小焰（生氣）/);
       await noOverflow('回饋頁');
       await shot('5-feedback', true);
 
@@ -160,6 +162,19 @@ const PORT = 5174;
       await page.locator('[data-act="retry-record"]').first().tap();
       await page.locator('#pr-say').waitFor();
       assert.match(await page.locator('.chat-title').textContent(), /進度延遲/);
+
+      // 情緒小夥伴圖鑑：公開頁面，六位小夥伴，每位都能帶著情境去練
+      await page.goto(`http://localhost:${PORT}/companions.html`);
+      await page.locator('.companion').first().waitFor();
+      assert.equal(await page.locator('.companion').count(), 6);
+      assert.equal(await page.locator('.companion .practice-link').count(), 6);
+      await shot('8-companions');
+      await noOverflow('圖鑑頁');
+      await page.locator('#anger .practice-link').tap();
+      await page.locator('#pr-situation').waitFor();
+      assert.match(await page.inputValue('#pr-situation'), /當眾反駁我的安排/, '應帶著小焰的情境進到描述頁');
+      assert.equal(new URL(page.url()).search, '', '網址不應留著描述內容');
+      await page.locator('#pr-guide').waitFor();
       await ctx.close();
     }
     assert.deepEqual(errors, [], '瀏覽器不應有錯誤');

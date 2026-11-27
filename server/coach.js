@@ -13,6 +13,7 @@ import {
   MAX_TURNS,
   charCount,
 } from '../public/src/practice-data.js';
+import { COMPANION_IDS, companionsForPrompt } from '../public/src/companions.js';
 import {
   CRISIS_NOTICE,
   UNLAWFUL_NOTICE,
@@ -99,6 +100,9 @@ export function validateBrief(brief) {
     clean[id] = text;
   }
   if (!clean.title || !clean.person || !clean.opening) throw new RequestError(400, 'bad_request', MESSAGES.badRequest);
+  const companion = brief.companion ?? '';
+  if (companion !== '' && !COMPANION_IDS.includes(companion)) throw new RequestError(400, 'bad_request', MESSAGES.badRequest);
+  clean.companion = companion;
   return clean;
 }
 
@@ -146,6 +150,10 @@ export function buildBriefSystem() {
 - blind_spot：主管可能沒注意到的一件事。優先檢查根本原因，例如：他知道自己的表現不如預期嗎？期待或標準有沒有具體說清楚過？主管自己的時間壓力是否讓話變急？只寫最重要的一件，1 到 2 句。
 - risk：如果這段對話涉及去留、調職、懲處、調薪、加班、請假、性別或懷孕等，用 1 到 2 句提醒開口前要先跟人資確認的程序或法規（例如勞動基準法對資遣的要求）。沒有這類風險就填空字串。
 - opening：對話開始時他的樣子，用括號寫一個動作或表情，可以接一句他的開場話，最多 40 字。
+- companion：他現在身上最明顯的情緒小夥伴，從下面挑一個 id。state 裡可以用這位小夥伴的名字說明他在保護什麼，例如「他的小旋（焦慮）正在擔心……」。
+
+## 情緒小夥伴（每個情緒都帶著一個訊息，都有它想保護的東西）
+${companionsForPrompt()}
 
 ## 原則
 - 不貼標籤（例如「霸凌」「情緒勒索」「有毒」），只描述行為與可能的感受。
@@ -153,7 +161,7 @@ export function buildBriefSystem() {
 
 ## 安全訊號
 ${SAFETY_SIGNALS}
-signal 不是 "none" 時，其他欄位都填空字串。
+signal 不是 "none" 時，其他欄位都填空字串，companion 填 "calm"。
 
 只輸出符合格式的 JSON。`;
 }
@@ -170,7 +178,8 @@ ${setup.situation}
 - 他是什麼樣的人：${b.person}
 - 他現在可能在想什麼：${b.state || '（未提供）'}
 - 主管可能沒注意到的事：${b.blindSpot || '（未提供）'}
-- 開口前先確認：${b.risk || '（無）'}`;
+- 開口前先確認：${b.risk || '（無）'}
+- 他身上最明顯的情緒小夥伴：${b.companion || '（未標示）'}`;
 }
 
 export function buildRoleplaySystem(setup) {
@@ -214,7 +223,12 @@ ${setupText(setup)}
 - rewrite.better：把那句改寫成更好的版本，是主管可以直接說出口的話。
 - rewrite.why：一句話說明改寫後好在哪裡。
 - next_step：一個下次可以試的具體做法，要具體到能直接照著做。
+- companion.id：這段對話裡，主管自己身上最明顯的情緒小夥伴，從下面挑一個 id。
+- companion.note：1 到 2 句，指出它在哪一句話出現、它想保護什麼，以及下次怎麼照顧它，例如「你的小焰（生氣）在『……』這句出現了，它在守護……」。
 - risk_note：如果主管的說法可能被理解成要對方離職、調職、懲處，或涉及加班、請假、性別、懷孕等法規敏感的事，用 1 到 2 句提醒實際談之前先跟人資確認程序，並說明哪句話可能被這樣理解。沒有就填空字串。
+
+## 情緒小夥伴（每個情緒都帶著一個訊息，都有它想保護的東西）
+${companionsForPrompt()}
 
 只輸出符合格式的 JSON。`;
 }
@@ -229,8 +243,9 @@ export const BRIEF_SCHEMA = {
     blind_spot: { type: 'string' },
     risk: { type: 'string' },
     opening: { type: 'string' },
+    companion: { type: 'string', enum: COMPANION_IDS },
   },
-  required: ['signal', 'title', 'person', 'state', 'blind_spot', 'risk', 'opening'],
+  required: ['signal', 'title', 'person', 'state', 'blind_spot', 'risk', 'opening', 'companion'],
   additionalProperties: false,
 };
 
@@ -267,8 +282,14 @@ export const FEEDBACK_SCHEMA = {
     },
     next_step: { type: 'string' },
     risk_note: { type: 'string' },
+    companion: {
+      type: 'object',
+      properties: { id: { type: 'string', enum: COMPANION_IDS }, note: { type: 'string' } },
+      required: ['id', 'note'],
+      additionalProperties: false,
+    },
   },
-  required: ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step', 'risk_note'],
+  required: ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step', 'risk_note', 'companion'],
   additionalProperties: false,
 };
 
@@ -356,6 +377,7 @@ export function parseBrief(response) {
     blindSpot: str(data.blind_spot),
     risk: str(data.risk),
     opening: str(data.opening, 120),
+    companion: COMPANION_IDS.includes(data.companion) ? data.companion : '',
   };
   if (!brief.title || !brief.person || !brief.opening) throw new UpstreamError('upstream', MESSAGES.upstream);
   if (hasCrisisSignal(Object.values(brief))) throw new UpstreamError('upstream', MESSAGES.upstream);
@@ -392,6 +414,9 @@ export function parseFeedback(response) {
     },
     nextStep: str(data?.next_step),
     riskNote: str(data?.risk_note),
+    companion: COMPANION_IDS.includes(data?.companion?.id) && str(data?.companion?.note)
+      ? { id: data.companion.id, note: str(data.companion.note) }
+      : null,
   };
   const complete = feedback.feelings.intent && feedback.feelings.impact
     && feedback.strengths.length === 2 && feedback.adjustments.length === 2

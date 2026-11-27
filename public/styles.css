@@ -200,3 +200,27 @@ textarea, .code-form input {
 .fb.risk { border-left: 6px solid #C9932E; }
 .link-row { display: flex; justify-content: center; margin-top: 12px; }
 .link-row .btn { min-height: 44px; }
+
+/* 情緒小夥伴 */
+.avatar { display: block; width: 64px; height: 64px; flex: none; }
+.avatar.small { width: 36px; height: 36px; }
+.back { display: inline-block; min-height: 44px; line-height: 44px; color: var(--accent); font-weight: 700; text-decoration: none; }
+.guide-link { display: block; text-align: center; margin-top: 16px; min-height: 44px; line-height: 44px; color: var(--accent); font-weight: 700; text-decoration: none; }
+.companion {
+  background: var(--surface);
+  border: 2px solid var(--line);
+  border-top: 6px solid var(--c);
+  border-radius: 20px;
+  padding: 16px;
+  margin-top: 16px;
+  scroll-margin-top: 16px;
+}
+.companion header { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; }
+.companion h2 { margin: 0; font-size: 1.3rem; }
+.companion .emotion { margin: 0; color: var(--ink-soft); }
+.companion section { margin-top: 12px; }
+.companion h3 { font-size: .85rem; color: var(--ink-soft); margin: 0 0 2px; }
+.companion p { margin: 0; }
+.companion .said { font-style: italic; }
+.companion .practice-link { text-align: center; line-height: 44px; text-decoration: none; }
+.who-chip { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }

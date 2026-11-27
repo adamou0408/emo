@@ -32,6 +32,7 @@ const BRIEF = {
   blindSpot: MOCK_BRIEF.blind_spot,
   risk: '',
   opening: MOCK_BRIEF.opening,
+  companion: 'anxiety',
 };
 const SETUP = { situation: '他負責的報表晚了一週，每次問都說快好了。', brief: BRIEF };
 
@@ -70,7 +71,9 @@ test('狀況卡請求：用主管的描述現場生成，要求固定欄位與�
   assert.equal(req.model, 'claude-opus-5-5');
   assert.equal(req.fallbacks, 'default');
   assert.equal(req.output_config.effort, 'medium');
-  assert.deepEqual(req.output_config.format.schema.required, ['signal', 'title', 'person', 'state', 'blind_spot', 'risk', 'opening']);
+  assert.deepEqual(req.output_config.format.schema.required, ['signal', 'title', 'person', 'state', 'blind_spot', 'risk', 'opening', 'companion']);
+  assert.deepEqual(req.output_config.format.schema.properties.companion.enum, ['anger', 'anxiety', 'sadness', 'tired', 'joy', 'calm']);
+  assert.match(req.system[0].text, /小旋（焦慮）/, '提示要用情緒小夥伴的語言');
   assert.match(req.messages[0].content, /他來一年了，產出一直跟不上/);
   const system = req.system[0].text;
   assert.match(system, /他知道自己的表現不如預期嗎/, '盲點要先檢查根本原因');
@@ -100,6 +103,7 @@ test('狀況卡解析：欄位齊全才算數，風險可以留空', () => {
   assert.deepEqual(ok.brief, BRIEF);
   assert.throws(() => parseBrief(jsonReply({ signal: 'none', ...MOCK_BRIEF, person: '' })), { code: 'upstream' });
   assert.throws(() => parseBrief(jsonReply({ ...MOCK_BRIEF })), { code: 'upstream' });
+  assert.equal(parseBrief(jsonReply({ signal: 'none', ...MOCK_BRIEF, companion: 'nobody' })).brief.companion, '');
   assert.deepEqual(parseBrief(jsonReply({ signal: 'crisis', title: '', person: '', state: '', blind_spot: '', risk: '', opening: '' })), { signal: 'crisis' });
 });
 
@@ -153,7 +157,8 @@ test('回饋請求：逐字稿標出主管與部屬，要求固定欄位與風�
   const req = buildFeedbackRequest(validateSetup(SETUP), messages);
   assert.equal(req.output_config.effort, 'high');
   assert.equal(req.fallbacks, 'default');
-  assert.deepEqual(req.output_config.format.schema.required, ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step', 'risk_note']);
+  assert.deepEqual(req.output_config.format.schema.required, ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step', 'risk_note', 'companion']);
+  assert.match(req.system[0].text, /companion\.note/);
   assert.ok(req.system[0].text.includes(SETUP.situation));
   assert.match(req.system[0].text, /risk_note/);
   assert.match(req.system[0].text, /人資確認程序/);
@@ -187,6 +192,8 @@ test('對話格式不對時拒絕：要由主管開始、輪流、最後一句�
   assert.throws(() => validateSetup({ situation: '有狀況' }), { code: 'bad_request' });
   assert.throws(() => validateSetup({ situation: '有狀況', brief: { ...BRIEF, title: '' } }), { code: 'bad_request' });
   assert.throws(() => validateSetup({ situation: '有狀況', brief: { ...BRIEF, person: 42 } }), { code: 'bad_request' });
+  assert.throws(() => validateSetup({ situation: '有狀況', brief: { ...BRIEF, companion: 'nobody' } }), { code: 'bad_request' });
+  assert.equal(validateSetup({ situation: '有狀況', brief: { ...BRIEF, companion: undefined } }).brief.companion, '');
 });
 
 test('超過上限時後端回友善訊息，而且不呼叫 AI', async () => {
@@ -278,7 +285,10 @@ test('回饋解析：五個固定欄位，多的點數只取前 2 點', () => {
   const raw = MOCK_FEEDBACK('你為什麼又晚了');
   raw.strengths.push('第三點');
   const fb = parseFeedback(jsonReply(raw));
-  assert.deepEqual(Object.keys(fb), ['feelings', 'strengths', 'adjustments', 'rewrite', 'nextStep', 'riskNote']);
+  assert.deepEqual(Object.keys(fb), ['feelings', 'strengths', 'adjustments', 'rewrite', 'nextStep', 'riskNote', 'companion']);
+  assert.equal(fb.companion.id, 'anger');
+  assert.match(fb.companion.note, /小焰/);
+  assert.equal(parseFeedback(jsonReply({ ...raw, companion: { id: 'nobody', note: 'x' } })).companion, null, '小夥伴不對時省略，不影響其他回饋');
   assert.equal(fb.riskNote, '');
   assert.equal(parseFeedback(jsonReply({ ...raw, risk_note: '先跟人資確認資遣程序。' })).riskNote, '先跟人資確認資遣程序。');
   assert.ok(fb.feelings.intent && fb.feelings.impact);

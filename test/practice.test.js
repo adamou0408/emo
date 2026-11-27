@@ -9,6 +9,7 @@ import {
   CODE_KEY, LEGACY_PRACTICE_KEY, PRACTICE_KEY, addRecord, createApi, loadCode, loadRecords, saveCode, setupFromRecord,
 } from '../public/src/practice.js';
 import { MOCK_BRIEF, MOCK_FEEDBACK } from '../scripts/mock-claude.mjs';
+import { COMPANIONS, avatarSvg, companionLabel, getCompanion } from '../public/src/companions.js';
 
 function fakeStorage(initial = {}) {
   const map = new Map(Object.entries(initial));
@@ -17,7 +18,7 @@ function fakeStorage(initial = {}) {
 
 const BRIEF = {
   title: MOCK_BRIEF.title, person: MOCK_BRIEF.person, state: MOCK_BRIEF.state,
-  blindSpot: MOCK_BRIEF.blind_spot, risk: '', opening: MOCK_BRIEF.opening,
+  blindSpot: MOCK_BRIEF.blind_spot, risk: '', opening: MOCK_BRIEF.opening, companion: 'anxiety',
 };
 const SETUP = { situation: '他負責的報表晚了一週', brief: BRIEF };
 
@@ -123,4 +124,17 @@ test('前端 API：邀請碼放在標頭；沒有後端時當作還沒準備好�
 
   const denied = await createApi(async () => new Response(JSON.stringify({ error: 'bad_code', message: '邀請碼不正確' }), { status: 401 })).verify('x');
   assert.deepEqual(denied, { ok: false, error: 'bad_code', message: '邀請碼不正確' });
+});
+
+test('情緒小夥伴：六位，每位都有保護什麼、職場上的樣子、出現在別人身上時、可以對他說、可直接練習的情境', () => {
+  assert.deepEqual(COMPANIONS.map((c) => c.id), ['anger', 'anxiety', 'sadness', 'tired', 'joy', 'calm']);
+  for (const c of COMPANIONS) {
+    for (const key of ['name', 'emotion', 'color', 'shape', 'protects', 'inOthers', 'sayTo', 'practice']) assert.ok(c[key], `${c.id} 缺 ${key}`);
+    assert.ok(c.atWork.length >= 1);
+    assert.ok(charCount(c.practice) <= MAX_SITUATION_CHARS);
+    assert.equal(screen({ situation: c.practice }, []), null, `練習情境不應觸發安全提醒：${c.id}`);
+    assert.match(avatarSvg(c), /^<svg/);
+  }
+  assert.equal(companionLabel(getCompanion('anger')), '小焰（生氣）');
+  assert.equal(getCompanion('nobody'), null);
 });

@@ -25,6 +25,7 @@ export const MOCK_BRIEF = {
   blind_spot: '你上次具體說明期限和標準是什麼時候？他可能不清楚哪一部分最急。',
   risk: '',
   opening: '（他抱著筆電坐下，先開口）主管，是要談報表的事嗎？',
+  companion: 'anxiety',
 };
 
 export const MOCK_FEEDBACK = (firstManagerLine) => ({
@@ -47,6 +48,7 @@ export const MOCK_FEEDBACK = (firstManagerLine) => ({
   },
   next_step: '下次開場先用一句話描述你看到的事實，接著問一個開放式問題，然後安靜等他回答。',
   risk_note: '',
+  companion: { id: 'anger', note: `你的小焰（生氣）在「${firstManagerLine}」這句出現了，它在守護你對準時的承諾；下次先深呼吸，把事實說清楚。` },
 });
 
 export function createMockClient({ calls = [], override } = {}) {

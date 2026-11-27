@@ -10,6 +10,7 @@ import {
   charCount,
 } from './practice-data.js';
 import { CRISIS_NOTICE, UNLAWFUL_NOTICE, screen } from './practice-safety.js';
+import { avatarSvg, companionLabel, getCompanion } from './companions.js';
 import {
   addRecord,
   createApi,
@@ -47,10 +48,21 @@ function escapeHtml(text) {
 
 const turnsUsed = () => ps.messages.filter((m) => m.role === 'manager').length;
 
+// 從圖鑑頁「帶著這個情境去練練看」進來時，網址會帶 ?situation=，先填進描述框。
+export function situationFromUrl(search) {
+  const text = new URLSearchParams(search).get('situation') ?? '';
+  return [...text.trim()].slice(0, MAX_SITUATION_CHARS).join('');
+}
+
 export function initPractice(viewEl, store) {
   view = viewEl;
   storage = store;
   ps.code = loadCode(storage);
+  const fromUrl = situationFromUrl(window.location.search);
+  if (fromUrl) {
+    ps.situation = fromUrl;
+    window.history.replaceState(null, '', window.location.pathname);
+  }
 }
 
 function rerender({ focus = null, scroll = false } = {}) {
@@ -89,6 +101,8 @@ function noticeHtml() {
   return `<div class="notice ${ps.notice.kind}" role="alert" id="pr-notice">${title}<p>${escapeHtml(ps.notice.body)}</p></div>`;
 }
 
+const GUIDE_LINK = '<a class="guide-link" href="/companions.html" id="pr-guide">認識你的情緒小夥伴</a>';
+
 function recordsLink() {
   const count = loadRecords(storage).length;
   return count ? `<div class="link-row"><button type="button" class="btn ghost" data-act="records">過去的練習（${count}）</button></div>` : '';
@@ -118,6 +132,7 @@ function renderIntro() {
     ${noticeHtml()}
     ${body}
     ${recordsLink()}
+    ${GUIDE_LINK}
     ${PRIVACY}`;
 }
 
@@ -136,13 +151,20 @@ function renderDescribe() {
       ${EXAMPLES.map((e, i) => `<button type="button" class="example" data-act="example" data-index="${i}" ${busy ? 'disabled' : ''}>${escapeHtml(e.label)}</button>`).join('')}
     </div>
     <button type="button" class="btn primary block" data-act="brief" id="pr-brief" ${busy || !ps.situation.trim() ? 'disabled' : ''}>${busy ? '正在讀懂狀況…' : '讀懂狀況'}</button>
-    ${recordsLink()}`;
+    ${recordsLink()}
+    ${GUIDE_LINK}`;
+}
+
+function companionChip(id, who) {
+  const c = getCompanion(id);
+  if (!c) return '';
+  return `<span class="who-chip" data-companion="${c.id}">${avatarSvg(c, 'avatar small')}${who}的${escapeHtml(companionLabel(c))}</span>`;
 }
 
 function briefHtml(brief) {
   return `<div class="brief" id="pr-brief-card">
     ${BRIEF_FIELDS.filter((f) => brief[f.id]).map((f) => `<section class="${f.id === 'risk' ? 'risk' : ''}" data-brief="${f.id}">
-      <h2>${escapeHtml(f.label)}</h2><p>${escapeHtml(brief[f.id])}</p></section>`).join('')}
+      <h2>${escapeHtml(f.label)}</h2>${f.id === 'state' ? companionChip(brief.companion, '他') : ''}<p>${escapeHtml(brief[f.id])}</p></section>`).join('')}
   </div>`;
 }
 
@@ -214,6 +236,7 @@ function feedbackHtml(fb) {
       <p class="quote after"><span>可以這樣說</span>${escapeHtml(fb.rewrite.better)}</p>
       ${fb.rewrite.why ? `<p class="hint">${escapeHtml(fb.rewrite.why)}</p>` : ''}
     </section>
+    ${fb.companion && getCompanion(fb.companion.id) ? `<section class="fb" id="pr-fb-companion"><h2>你的小夥伴</h2>${companionChip(fb.companion.id, '你')}<p>${escapeHtml(fb.companion.note)}</p></section>` : ''}
     <section class="fb" id="pr-fb-next"><h2>下次可以試</h2><p>${escapeHtml(fb.nextStep)}</p></section>`;
 }
 
