@@ -95,3 +95,9 @@ AI 扮演那位部屬陪練 → 教練回饋。網址 https://emo.aixmoment.com�
   所以專案的建置指令設為 `npm ci`（2026-11-27 經 API 設定），SDK 才會被打包進去；輸出目錄仍是 `public`。本機可用 `npx wrangler pages functions build` 確認能打包。
 - 不要用 `wrangler pages deploy`：直接上傳會被網路代理擋下（它會換掉上傳用的臨時憑證）。一律透過 git push 部署。
 - `public/_headers` 設定 Cloudflare Pages 的回應標頭。
+- 累積資訊的資料庫：Cloudflare D1 `emo-insights`（id `b841d125-3dad-4bc8-a3d3-297ad1a4a5f8`），
+  已綁定到 Production 與 Preview（綁定名稱 `DB`），資料表由 `server/schema.sql` 建立。token 有 D1 Edit 權限。
+  查詢（設計新題目時用，只讀）：
+  `curl -s -X POST https://api.cloudflare.com/client/v4/accounts/6e40aedcc7035de56fd9ed7a02b0ef77/d1/database/b841d125-3dad-4bc8-a3d3-297ad1a4a5f8/query -H 'Content-Type: application/json' -d '{"sql":"SELECT kind, key, SUM(n) AS n FROM counts GROUP BY kind, key ORDER BY n DESC"}'`
+  改了綁定或環境變數後，要重新部署（例如對 `/deployments` POST `branch=main`）才會生效。
+  Cloudflare API 偶爾回 `971` 要求放慢速度，等幾十秒再試即可。
