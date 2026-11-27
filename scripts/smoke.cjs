@@ -13,6 +13,7 @@ const PORT = 5174;
   const { startServer } = await import('./serve.mjs');
   const { handlePractice } = await import('../server/coach.js');
   const { createMockClient } = await import('./mock-claude.mjs');
+  const { createMockD1 } = await import('./mock-d1.mjs');
   const CODE = 'smoke-code';
   const env = {};
   const server = await startServer(PORT, {
@@ -52,6 +53,7 @@ const PORT = 5174;
       // 只有一個用途：沒有底部選單，也沒有情緒記錄。
       delete env.ANTHROPIC_API_KEY;
       delete env.ACCESS_CODE;
+      delete env.DB;
       await page.goto(`http://localhost:${PORT}/`);
       assert.equal(await page.title(), '心靈健身房');
       assert.equal(await page.locator('nav, .tab, .card').count(), 0, '不應有分頁選單或小夥伴卡片');
@@ -63,6 +65,7 @@ const PORT = 5174;
       // 邀請碼
       env.ANTHROPIC_API_KEY = 'mock-key';
       env.ACCESS_CODE = CODE;
+      env.DB = createMockD1();
       await page.reload();
       await page.fill('#pr-code', 'wrong');
       await page.locator('#pr-enter').tap();
@@ -125,6 +128,15 @@ const PORT = 5174;
       await noOverflow('回饋頁');
       await shot('5-feedback', true);
 
+      // 匿名貢獻給題庫：先看改寫版，確認後才存
+      await page.locator('#pr-contribute-preview').tap();
+      await page.locator('#pr-contribute-text').waitFor();
+      assert.equal(env.DB.contributions.length, 0, '預覽時不存');
+      await page.locator('#pr-contribute-save').tap();
+      await page.locator('#pr-contribute-done').waitFor();
+      assert.equal(env.DB.contributions.length, 1);
+      assert.ok(!env.DB.contributions[0].scenario.includes('你到底為什麼'), '不存逐字稿');
+
       // 用同樣的狀況再練一次，並用完 12 回合
       await page.locator('#pr-retry').tap();
       assert.equal(await page.locator('.msg').count(), 0);
@@ -139,13 +151,31 @@ const PORT = 5174;
       await page.locator('[data-act="new"]').tap();
       assert.equal(await page.inputValue('#pr-situation'), '');
 
+      // 快速題：一句話、看解析、可以轉成完整對練
+      await page.locator('#pr-drill-entry').tap();
+      await page.locator('#pr-drill-line').waitFor();
+      assert.ok(await page.locator('#pr-drill-send').isDisabled());
+      await page.fill('#pr-drill-answer', '我知道這有點突然，我們先看看要怎麼分工。');
+      await page.locator('#pr-drill-send').tap();
+      await page.locator('#pr-drill-better').waitFor();
+      assert.match(await page.locator('#pr-drill-need .who-chip').textContent(), /他的/);
+      await shot('6-drill', true);
+      await noOverflow('快速題');
+      const drillLine = await page.locator('#pr-drill-line').textContent();
+      await page.locator('#pr-drill-full').tap();
+      assert.ok((await page.inputValue('#pr-situation')).includes(drillLine), '轉成完整對練時應帶著這題的情境');
+      await page.locator('#pr-drill-entry').tap();
+      await page.locator('#pr-drill-next').waitFor({ state: 'detached' }).catch(() => {});
+      await page.locator('[data-act="home"]').tap();
+      await page.fill('#pr-situation', '');
+
       // 危機訊號：停止，提供 1925
       await page.fill('#pr-situation', '老實說我最近也撐不下去，不想活了');
       await page.locator('#pr-brief').tap();
       await page.locator('#pr-crisis').waitFor();
       assert.match(await page.locator('#pr-crisis').textContent(), /1925/);
       assert.equal(await page.locator('#pr-crisis a[href="tel:1925"]').count(), 1);
-      await shot('6-crisis');
+      await shot('7-crisis');
 
       // 重新整理：已存的邀請碼自動通過，直接回到描述頁；過去的練習仍在
       await page.reload();
@@ -153,7 +183,7 @@ const PORT = 5174;
       await page.locator('[data-act="records"]').tap();
       assert.equal(await page.locator('.record').count(), 2, '應有 2 筆練習紀錄');
       await page.locator('.record details summary').first().tap();
-      await shot('7-records');
+      await shot('8-records');
       await noOverflow('練習紀錄');
       const stored = await page.evaluate(() => localStorage.getItem('emo.practice.v2'));
       assert.ok(!stored.includes('我想聽聽你覺得卡在哪裡') && !stored.includes('第 12 句'), '不應存逐字稿');
@@ -168,7 +198,12 @@ const PORT = 5174;
       await page.locator('.companion').first().waitFor();
       assert.equal(await page.locator('.companion').count(), 6);
       assert.equal(await page.locator('.companion .practice-link').count(), 6);
-      await shot('8-companions');
+      await page.locator('[data-resonate="tired"]').tap();
+      await page.locator('[data-resonate="tired"]:disabled').waitFor();
+      await page.waitForFunction(() => true);
+      await new Promise((r) => setTimeout(r, 300));
+      assert.ok([...env.DB.counts.keys()].some((k) => k.endsWith('|resonate|tired')), '「說中我了」應被記下');
+      await shot('9-companions');
       await noOverflow('圖鑑頁');
       await page.locator('#anger .practice-link').tap();
       await page.locator('#pr-situation').waitFor();

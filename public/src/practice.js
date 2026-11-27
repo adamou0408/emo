@@ -130,5 +130,12 @@ export function createApi(fetchImpl = (...args) => fetch(...args)) {
     brief: (code, situation) => request(fetchImpl, 'brief', { code, body: { situation } }),
     turn: (code, setup, messages) => request(fetchImpl, 'turn', { code, body: { setup, messages } }),
     feedback: (code, setup, messages) => request(fetchImpl, 'feedback', { code, body: { setup, messages } }),
+    drill: (code, drillId, answer) => request(fetchImpl, 'drill', { code, body: { drillId, answer } }),
+    contributePreview: (code, situation) => request(fetchImpl, 'contribute', { code, body: { mode: 'preview', situation } }),
+    contributeSave: (code, scenario, hisCompanion, yourCompanion) => request(fetchImpl, 'contribute', {
+      code, body: { mode: 'save', scenario, hisCompanion, yourCompanion },
+    }),
+    // 圖鑑頁「說中我了」：不需要邀請碼。
+    resonate: (companionId) => request(fetchImpl, 'count', { body: { kind: 'resonate', key: companionId } }),
   };
 }

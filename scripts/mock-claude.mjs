@@ -28,6 +28,15 @@ export const MOCK_BRIEF = {
   companion: 'anxiety',
 };
 
+export const MOCK_DRILL = {
+  reaction: '（他停了一下）……好吧，那你說說這件事為什麼要我來做。',
+  his_need: '他的小焰（生氣）在守護工作的界線，想確定自己不是一直被多塞事情。',
+  effect: '你直接說「這是工作」，回應了任務，卻沒有回應他覺得被多塞事情的感受。',
+  better: '我知道這不在你原本的範圍，先說為什麼找你，再一起看要拿掉哪一件。',
+};
+
+export const MOCK_CONTRIBUTION = '我把一個臨時的客戶需求交給部屬，他回說這不在他的工作範圍。我想讓他接，但也不想讓他覺得一直被多塞事情。';
+
 export const MOCK_FEEDBACK = (firstManagerLine) => ({
   feelings: {
     intent: '你想讓他知道進度的嚴重性，並一起找出能趕上的做法。',
@@ -60,6 +69,8 @@ export function createMockClient({ calls = [], override } = {}) {
           if (override) return override(params);
           const props = params.output_config?.format?.schema?.properties ?? {};
           if (props.person) return textResponse({ signal: 'none', ...MOCK_BRIEF });
+          if (props.his_need) return textResponse({ signal: 'none', ...MOCK_DRILL });
+          if (props.ok) return textResponse({ signal: 'none', ok: true, scenario: MOCK_CONTRIBUTION });
           if (props.reply) {
             const last = params.messages[params.messages.length - 1].content;
             return textResponse({ signal: 'none', reply: mockReply(last) });

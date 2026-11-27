@@ -11,6 +11,7 @@ import {
 } from './practice-data.js';
 import { CRISIS_NOTICE, UNLAWFUL_NOTICE, screen } from './practice-safety.js';
 import { avatarSvg, companionLabel, getCompanion } from './companions.js';
+import { MAX_DRILL_ANSWER, drillSituation, getDrill, nextDrill } from './drills.js';
 import {
   addRecord,
   createApi,
@@ -25,8 +26,8 @@ let storage = null;
 let view = null;
 
 const ps = {
-  step: 'intro', // intro | describe | brief | chat | feedback | records | crisis
-  status: null, // null（還沒查）| 'loading' | { ready, missing }
+  step: 'intro', // intro | describe | brief | chat | feedback | records | crisis | drill
+  status: null, // null（還沒查）| 'loading' | { ready, missing, contribute }
   code: '',
   codeOk: false,
   autoTried: false, // 已存過邀請碼時自動確認一次，不用每次重打
@@ -34,7 +35,9 @@ const ps = {
   setup: null, // { situation, brief }
   messages: [],
   draft: '',
-  busy: '', // '' | 'verify' | 'brief' | 'turn' | 'feedback'
+  busy: '', // '' | 'verify' | 'brief' | 'turn' | 'feedback' | 'drill' | 'contribute'
+  drill: null, // { id, answer, result }
+  contribution: null, // null | { state: 'preview' | 'saved' | 'rejected', scenario?, message? }
   notice: null, // { kind: 'unlawful' | 'error', title?, body }
   feedback: null,
   pendingRetry: null,
@@ -82,7 +85,9 @@ function goStep(step) {
 async function loadStatus() {
   ps.status = 'loading';
   const result = await api.status();
-  ps.status = result.ok ? { ready: Boolean(result.ready), missing: result.missing ?? [] } : { ready: false, missing: [] };
+  ps.status = result.ok
+    ? { ready: Boolean(result.ready), missing: result.missing ?? [], contribute: Boolean(result.contribute) }
+    : { ready: false, missing: [], contribute: false };
   if (ps.status.ready && ps.code && !ps.autoTried) {
     ps.autoTried = true;
     return enter({ silent: true });
@@ -93,7 +98,9 @@ async function loadStatus() {
 // ---------- 畫面 ----------
 
 const PRIVACY = `<p class="privacy" id="pr-privacy">隱私說明：你寫的內容只會即時送到 AI 產生回應，伺服器不儲存、也不記錄任何對話。
-練習紀錄（狀況、狀況卡和回饋）只存在這台裝置的瀏覽器，不會上傳；逐字稿不會被保存。</p>`;
+練習紀錄（狀況、狀況卡和回饋）只存在這台裝置的瀏覽器，不會上傳；逐字稿不會被保存。
+為了設計更好的練習題，網站只統計次數（例如哪位情緒小夥伴最常出現），不含你寫的任何文字；
+只有你主動選擇「匿名貢獻給題庫」並確認後，才會存下 AI 去掉人名公司後的改寫版本。</p>`;
 
 function noticeHtml() {
   if (!ps.notice) return '';
@@ -151,6 +158,9 @@ function renderDescribe() {
       ${EXAMPLES.map((e, i) => `<button type="button" class="example" data-act="example" data-index="${i}" ${busy ? 'disabled' : ''}>${escapeHtml(e.label)}</button>`).join('')}
     </div>
     <button type="button" class="btn primary block" data-act="brief" id="pr-brief" ${busy || !ps.situation.trim() ? 'disabled' : ''}>${busy ? '正在讀懂狀況…' : '讀懂狀況'}</button>
+    <button type="button" class="drill-entry" data-act="drill" id="pr-drill-entry" ${busy ? 'disabled' : ''}>
+      <strong>沒有特定要談的事？</strong><span>來一題 1 分鐘的快速題</span>
+    </button>
     ${recordsLink()}
     ${GUIDE_LINK}`;
 }
@@ -240,11 +250,67 @@ function feedbackHtml(fb) {
     <section class="fb" id="pr-fb-next"><h2>下次可以試</h2><p>${escapeHtml(fb.nextStep)}</p></section>`;
 }
 
+function renderDrill() {
+  const d = getDrill(ps.drill.id);
+  const c = getCompanion(d.companion);
+  const busy = ps.busy === 'drill';
+  const r = ps.drill.result;
+  view.innerHTML = `
+    <p class="stepper">快速題</p>
+    <h1>你會怎麼回？</h1>
+    <p class="sub">${escapeHtml(d.context)}</p>
+    <div class="msg report drill-line"><span class="msg-who">${escapeHtml(d.speaker)}</span><p id="pr-drill-line">${escapeHtml(d.line)}</p></div>
+    ${noticeHtml()}
+    ${r ? `
+      <div class="msg manager"><span class="msg-who">你</span><p>${escapeHtml(ps.drill.answer)}</p></div>
+      <div class="msg report"><span class="msg-who">${escapeHtml(d.speaker)}</span><p id="pr-drill-reaction">${escapeHtml(r.reaction)}</p></div>
+      <section class="fb" id="pr-drill-need"><h2>他的小夥伴</h2>${companionChip(c.id, '他')}<p>${escapeHtml(r.hisNeed)}</p></section>
+      <section class="fb" id="pr-drill-effect"><h2>你這句話</h2><p>${escapeHtml(r.effect)}</p></section>
+      <section class="fb" id="pr-drill-better"><h2>可以這樣說</h2><p class="quote after">${escapeHtml(r.better)}</p></section>
+      <button type="button" class="btn primary block" data-act="drill-next" id="pr-drill-next">再一題</button>
+      <button type="button" class="btn ghost block" data-act="drill-full" id="pr-drill-full">用這個情境完整對練</button>
+    ` : `
+      <form class="composer" data-form="drill">
+        <label class="visually-hidden" for="pr-drill-answer">你的回應</label>
+        <textarea id="pr-drill-answer" data-field="drillAnswer" rows="3" maxlength="${MAX_DRILL_ANSWER}" placeholder="寫下你會說的那一句" ${busy ? 'disabled' : ''}>${escapeHtml(ps.drill.answer)}</textarea>
+        <div class="composer-row">
+          <span class="counter" data-counter="drillAnswer">${charCount(ps.drill.answer)}／${MAX_DRILL_ANSWER}</span>
+          <button type="submit" class="btn primary" id="pr-drill-send" ${busy || !ps.drill.answer.trim() ? 'disabled' : ''}>${busy ? '教練看一下…' : '送出'}</button>
+        </div>
+      </form>
+      <button type="button" class="btn ghost block" data-act="drill-next">換一題</button>`}
+    <button type="button" class="btn ghost block" data-act="home">回到描述</button>`;
+}
+
+function contributionHtml() {
+  if (!ps.status?.contribute || !ps.setup) return '';
+  const c = ps.contribution;
+  const busy = ps.busy === 'contribute';
+  if (!c) {
+    return `<section class="fb contribute" id="pr-contribute">
+      <h2>匿名貢獻給題庫</h2>
+      <p>願意的話，把這次的情境匿名分享出來，變成別的主管也能練的題目。AI 會先去掉人名、公司等細節，你確認後才會送出。</p>
+      <button type="button" class="btn ghost block" data-act="contribute-preview" id="pr-contribute-preview" ${busy ? 'disabled' : ''}>${busy ? '正在改寫…' : '看看改寫後的樣子'}</button>
+    </section>`;
+  }
+  if (c.state === 'preview') {
+    return `<section class="fb contribute" id="pr-contribute">
+      <h2>匿名貢獻給題庫</h2>
+      <p class="quote after" id="pr-contribute-text">${escapeHtml(c.scenario)}</p>
+      <p class="hint">只會存下這段文字，不含你原本寫的內容。</p>
+      <button type="button" class="btn primary block" data-act="contribute-save" id="pr-contribute-save" ${busy ? 'disabled' : ''}>確認送出</button>
+      <button type="button" class="btn ghost block" data-act="contribute-cancel">不要了</button>
+    </section>`;
+  }
+  return `<section class="fb contribute" id="pr-contribute"><h2>匿名貢獻給題庫</h2><p id="pr-contribute-done">${escapeHtml(c.message)}</p></section>`;
+}
+
 function renderFeedback() {
   view.innerHTML = `
     <h1>這次的回饋</h1>
     <p class="sub">${escapeHtml(ps.setup.brief.title)}</p>
     ${feedbackHtml(ps.feedback)}
+    ${contributionHtml()}
     <button type="button" class="btn primary block" data-act="retry" id="pr-retry">用同樣的狀況再練一次</button>
     <button type="button" class="btn ghost block" data-act="new">練另一件事</button>
     <p class="hint">這份回饋已經存在這台裝置的瀏覽器裡。</p>`;
@@ -288,10 +354,12 @@ export function renderPractice() {
     feedback: renderFeedback,
     records: renderRecords,
     crisis: renderCrisis,
+    drill: renderDrill,
   };
   // 還沒通過邀請碼就只能看說明與過去的紀錄。
   if (!ps.codeOk && !['intro', 'records', 'crisis'].includes(ps.step)) ps.step = 'intro';
   if (['brief', 'chat'].includes(ps.step) && !ps.setup) ps.step = 'describe';
+  if (ps.step === 'drill' && !ps.drill) ps.step = 'describe';
   renderers[ps.step]();
 }
 
@@ -405,6 +473,47 @@ async function say() {
   rerender({ scroll: true });
 }
 
+function startDrill() {
+  ps.drill = { id: nextDrill(ps.drill?.id).id, answer: '', result: null };
+  goStep('drill');
+}
+
+async function answerDrill() {
+  const answer = ps.drill.answer.trim();
+  if (!answer || ps.busy) return;
+  const flagged = screen({}, [{ role: 'manager', text: answer }]);
+  if (flagged === 'crisis') return stopForCrisis();
+  if (flagged === 'unlawful') return showUnlawful();
+  ps.busy = 'drill';
+  ps.notice = null;
+  rerender();
+  const result = await api.drill(ps.code, ps.drill.id, answer);
+  ps.busy = '';
+  if (result.ok && result.type === 'drill') {
+    ps.drill.result = result.result;
+    return rerender();
+  }
+  if (result.ok && result.type === 'crisis') return stopForCrisis();
+  if (result.ok && result.type === 'unlawful') return showUnlawful(result.notice);
+  handleFailure(result);
+  rerender();
+}
+
+async function contribute(mode) {
+  if (ps.busy || !ps.setup) return;
+  ps.busy = 'contribute';
+  rerender();
+  const result = mode === 'preview'
+    ? await api.contributePreview(ps.code, ps.setup.situation)
+    : await api.contributeSave(ps.code, ps.contribution.scenario, ps.setup.brief.companion, ps.feedback?.companion?.id ?? '');
+  ps.busy = '';
+  if (result.ok && result.type === 'contribution_preview') ps.contribution = { state: 'preview', scenario: result.scenario };
+  else if (result.ok && result.type === 'contribution_saved') ps.contribution = { state: 'saved', message: '謝謝你！這個情境會被整理進題庫，幫助更多主管練習。' };
+  else if (result.ok && result.type === 'contribution_rejected') ps.contribution = { state: 'rejected', message: result.message };
+  else ps.contribution = { state: 'rejected', message: result.message ?? '這次沒有送出，請稍後再試。' };
+  rerender();
+}
+
 async function finish() {
   if (ps.busy || turnsUsed() === 0) return;
   ps.busy = 'feedback';
@@ -414,6 +523,7 @@ async function finish() {
   ps.busy = '';
   if (result.ok && result.type === 'feedback') {
     ps.feedback = result.feedback;
+    ps.contribution = null;
     addRecord(storage, { setup: ps.setup, feedback: result.feedback });
     ps.messages = [];
     return goStep('feedback');
@@ -443,6 +553,17 @@ export function handlePracticeClick(event) {
     ps.setup = null;
     goStep('describe');
   } else if (act === 'finish') finish();
+  else if (act === 'drill' || act === 'drill-next') startDrill();
+  else if (act === 'drill-full') {
+    ps.situation = drillSituation(getDrill(ps.drill.id));
+    ps.setup = null;
+    goStep('describe');
+  } else if (act === 'contribute-preview') contribute('preview');
+  else if (act === 'contribute-save') contribute('save');
+  else if (act === 'contribute-cancel') {
+    ps.contribution = { state: 'rejected', message: '好的，這次的情境不會被送出。' };
+    rerender();
+  }
   else if (act === 'retry-record') {
     const setup = setupFromRecord(loadRecords(storage).find((r) => r.id === id));
     if (!setup) return;
@@ -464,11 +585,16 @@ export function handlePracticeInput(event) {
   if (!field) return;
   if (field === 'draft') ps.draft = event.target.value;
   else if (field === 'situation') ps.situation = event.target.value;
+  else if (field === 'drillAnswer' && ps.drill) ps.drill.answer = event.target.value;
   const counter = view.querySelector(`[data-counter="${field}"]`);
   if (counter) counter.textContent = counter.textContent.replace(/^\d+/, String(charCount(event.target.value)));
   if (field === 'draft') {
     const send = view.querySelector('#pr-send');
     if (send) send.disabled = Boolean(ps.busy) || !ps.draft.trim();
+  }
+  if (field === 'drillAnswer') {
+    const send = view.querySelector('#pr-drill-send');
+    if (send) send.disabled = Boolean(ps.busy) || !ps.drill.answer.trim();
   }
   if (field === 'situation') {
     const next = view.querySelector('#pr-brief');
@@ -482,6 +608,7 @@ export async function handlePracticeSubmit(event) {
   event.preventDefault();
   if (form.dataset.form === 'code') await enter();
   else if (form.dataset.form === 'say') await say();
+  else if (form.dataset.form === 'drill') await answerDrill();
 }
 
 // 讓 Enter 送出、Shift+Enter 換行（手機鍵盤的換行鍵維持換行）。

@@ -1,5 +1,5 @@
 // 先走網路、失敗才用快取：上線新版本時使用者馬上拿到，離線時仍可使用。
-const CACHE = 'emo-v4';
+const CACHE = 'emo-v5';
 const SHELL = [
   '/',
   '/index.html',
@@ -9,6 +9,7 @@ const SHELL = [
   '/src/app.js',
   '/src/companions.js',
   '/src/companions-page.js',
+  '/src/drills.js',
   '/src/practice.js',
   '/src/practice-data.js',
   '/src/practice-safety.js',

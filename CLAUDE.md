@@ -15,6 +15,16 @@ AI 扮演那位部屬陪練 → 教練回饋。網址 https://emo.aixmoment.com�
   - `companions.html`（網址 `/companions`）是公開的「情緒小夥伴圖鑑」（不需要邀請碼），是內容入口：每張卡有「帶著這個情境去練練看」，
     以 `/?situation=` 把例子帶進描述框。衡量它的方式是有多少人從圖鑑點進去練。
   - 社群貼文系列（Threads／LinkedIn）由使用者經營，內容放在 Claude Docs，不放進 repo。
+- **情緒小夥伴用來累積資訊、設計健身房的問答內容**（2026-11-28 使用者決定：次數＋自願匿名投稿）：
+  - 快速題（`public/src/drills.js`）：對方的一句話 → 主管回一句 → AI 用小夥伴角度解析 → 可轉成完整對練。約 1 分鐘，
+    從描述頁「沒有特定要談的事？」進入。這是同一個「練習對話」的短版，不是新功能方向。
+  - 累積的資訊只有兩種（`server/store.js`、`server/schema.sql`，Cloudflare D1 綁定名稱 `DB`）：
+    次數（圖鑑「說中我了」、狀況卡的他的小夥伴、回饋的你的小夥伴、做了哪一題快速題）與
+    使用者自願投稿、確認過的情境改寫版（AI 先去掉人名公司，使用者看過改寫版才送出；不存原文、不存 IP）。
+  - 沒有綁定 `DB` 時，計數與投稿安靜停用，其他功能照常。
+  - **設計新題目的循環**：定期用 Cloudflare D1 API 查詢 `counts`（哪些小夥伴、哪些題目最多）與 `contributions`，
+    挑出常見又沒被涵蓋的情境，改寫成新的快速題（加進 `DRILLS`）或描述頁例子（`EXAMPLES`），走正常的分支、測試、上線流程。
+    不要把投稿原封不動上線：再檢查一次沒有可識別資訊。
 - 例子（`EXAMPLES`）只是讓人不用面對空白框的起點，點了會填進描述框，可以再改。
 - 衡量的是「有沒有真的去談、談得比較好」，不是使用次數。
 
@@ -24,6 +34,7 @@ AI 扮演那位部屬陪練 → 教練回饋。網址 https://emo.aixmoment.com�
 - 不做連續天數、不做任何懲罰、催促或讓人有罪惡感的文案。`test/site.test.js` 會掃描禁用字詞。
 - 隱私：你寫的內容只即時轉給 Claude，後端不儲存、不記錄（不要在 `server/` 加會印出請求內容的 log）；
   練習紀錄只存狀況描述、狀況卡與回饋，不存逐字稿，而且只存在使用者自己的瀏覽器。
+  伺服器端只存上面說的次數與自願投稿的改寫版；要多存任何東西，先問使用者。
 - 安全：危機訊號一律停止並提供 1925 安心專線；想違法處理部屬時不協助，提醒勞動法規、建議找人資或法務；
   涉及去留、調職、懲處、調薪等，狀況卡與回饋要提醒「先跟人資確認程序」。
 
@@ -35,12 +46,13 @@ AI 扮演那位部屬陪練 → 教練回饋。網址 https://emo.aixmoment.com�
 - `public/src/app.js`：進入點（儲存空間、事件轉接）。`public/src/practice-view.js`：所有畫面與流程。
 - `public/src/companions.js`：六位情緒小夥伴（名字、造型、保護什麼、職場上的樣子、練習情境）。圖鑑頁、狀況卡、回饋共用；
   `public/companions.html` + `public/src/companions-page.js` 是圖鑑頁。
+- `public/src/drills.js`：快速題題庫。`server/store.js`：次數與投稿的儲存（D1）。`scripts/mock-d1.mjs`：假的 D1。
 - `public/src/practice-data.js`：上限（12 回合、每則 500 字、描述 600 字）、狀況卡欄位、例子。前後端共用。
 - `public/src/practice-safety.js`：危機與違法意圖的關鍵字判斷與提醒文案。前後端共用。
 - `public/src/practice.js`：練習紀錄（`emo.practice.v2`，舊版 v1 唯讀相容）、邀請碼、呼叫後端（不碰 DOM）。
 - `server/coach.js`：後端邏輯（驗證、組提示、呼叫 Claude、解析）。`functions/api/practice/[action].js` 只是把
-  Cloudflare Pages Function 的請求轉進去。路由：`GET /api/practice/status`、`POST verify`、`brief`、`turn`、`feedback`，
-  邀請碼放在 `x-access-code` 標頭。後端不存狀態：狀況卡由前端每次帶回來，後端驗證長度。
+  Cloudflare Pages Function 的請求轉進去。路由：`GET /api/practice/status`、`POST verify`、`brief`、`turn`、`feedback`、`drill`、
+  `contribute`（`mode: preview | save`）、`count`（只接受圖鑑的 `resonate`，不需要邀請碼）。邀請碼放在 `x-access-code` 標頭。後端不存狀態：狀況卡由前端每次帶回來，後端驗證長度。
 - `scripts/mock-claude.mjs`：假的 Claude client，測試和 smoke 用，不連網路。
 - 模型：`claude-opus-5-5`（Claude Opus 5.5）。理由：claude-api skill 的預設就是它，角色扮演要能細膩地依主管語氣
   調整反應、回饋要具體又不貼標籤，需要最好的判斷力；價格比上一代 Opus 低。參數：
@@ -50,6 +62,7 @@ AI 扮演那位部屬陪練 → 教練回饋。網址 https://emo.aixmoment.com�
     `companion` 是小夥伴 id 的 enum；解析時不合法就省略，不影響其他內容。
   - 拒答備援：`betas: ['server-side-fallback-2026-07-01']` + `fallbacks: 'default'`，仍拒答時回友善訊息。
   - system prompt 加 `cache_control`，同一次對練的後續回合可以命中快取。
+- 快速題 effort `low`、投稿改寫 effort `low`，都用結構化輸出，也都有 crisis／unlawful 訊號。
 - 環境變數（Cloudflare Pages 專案設定，Production 和 Preview 都要設，用加密的 Secret）：
   `ANTHROPIC_API_KEY`、`ACCESS_CODE`（試點邀請碼）。絕不寫進 repo。沒設定時畫面顯示「等待設定」。
   本機 `ANTHROPIC_API_KEY=... ACCESS_CODE=... npm start` 也能真的對練。

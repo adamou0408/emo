@@ -224,3 +224,14 @@ textarea, .code-form input {
 .companion .said { font-style: italic; }
 .companion .practice-link { text-align: center; line-height: 44px; text-decoration: none; }
 .who-chip { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; color: var(--ink); margin-bottom: 4px; }
+
+/* 快速題與題庫投稿 */
+.drill-entry {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  width: 100%; margin-top: 16px; padding: 12px 14px; text-align: left;
+  background: var(--surface); border: 2px dashed var(--line); border-radius: 16px;
+}
+.drill-entry span { color: var(--ink-soft); font-size: .9rem; }
+.drill-line { margin-bottom: 8px; }
+.contribute { border-style: dashed; }
+.resonate { margin-top: 12px; }

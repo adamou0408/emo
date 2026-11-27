@@ -63,6 +63,8 @@ test('畫面文案沒有連續天數或懲罰式用語', () => {
     'public/src/app.js',
     'public/src/companions.js',
     'public/src/companions-page.js',
+    'public/src/drills.js',
+    'server/store.js',
     'public/src/practice-view.js',
     'public/src/practice-data.js',
     'public/src/practice-safety.js',
