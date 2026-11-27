@@ -3,7 +3,7 @@ const CACHE = 'emo-v4';
 const SHELL = [
   '/',
   '/index.html',
-  '/companions.html',
+  '/companions',
   '/styles.css',
   '/manifest.webmanifest',
   '/src/app.js',

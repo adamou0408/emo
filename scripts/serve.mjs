@@ -42,6 +42,13 @@ export function startServer(port = PORT, { practice } = {}) {
       const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
       let file = normalize(join(ROOT, path));
       if (!file.startsWith(ROOT)) throw new Error('outside root');
+      // 跟 Cloudflare Pages 一樣：/companions 對應 companions.html
+      if (!extname(file)) {
+        try {
+          await stat(`${file}.html`);
+          file = `${file}.html`;
+        } catch {}
+      }
       if ((await stat(file)).isDirectory()) file = join(file, 'index.html');
       const body = await readFile(file);
       res.writeHead(200, { 'Content-Type': TYPES[extname(file)] ?? 'application/octet-stream', 'Cache-Control': 'no-store' });

@@ -164,7 +164,7 @@ const PORT = 5174;
       assert.match(await page.locator('.chat-title').textContent(), /進度延遲/);
 
       // 情緒小夥伴圖鑑：公開頁面，六位小夥伴，每位都能帶著情境去練
-      await page.goto(`http://localhost:${PORT}/companions.html`);
+      await page.goto(`http://localhost:${PORT}/companions`);
       await page.locator('.companion').first().waitFor();
       assert.equal(await page.locator('.companion').count(), 6);
       assert.equal(await page.locator('.companion .practice-link').count(), 6);

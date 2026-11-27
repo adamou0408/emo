@@ -19,7 +19,11 @@ test('service worker 預先快取的檔案都存在', () => {
   const list = read('sw.js').match(/const SHELL = \[([\s\S]*?)\]/)[1];
   const paths = [...list.matchAll(/'([^']+)'/g)].map((m) => m[1]).filter((p) => p !== '/');
   assert.ok(paths.length > 0);
-  for (const p of paths) assert.ok(existsSync(new URL(p.slice(1), root)), `缺少 ${p}`);
+  // 沒有副檔名的路徑（例如 /companions）在 Cloudflare Pages 對應到 .html 檔
+  for (const p of paths) {
+    const file = /\.[a-z]+$/.test(p) ? p.slice(1) : `${p.slice(1)}.html`;
+    assert.ok(existsSync(new URL(file, root)), `缺少 ${p}`);
+  }
 });
 
 test('index.html 引用的本機檔案都存在', () => {

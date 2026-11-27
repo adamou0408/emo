@@ -101,7 +101,7 @@ function noticeHtml() {
   return `<div class="notice ${ps.notice.kind}" role="alert" id="pr-notice">${title}<p>${escapeHtml(ps.notice.body)}</p></div>`;
 }
 
-const GUIDE_LINK = '<a class="guide-link" href="/companions.html" id="pr-guide">認識你的情緒小夥伴</a>';
+const GUIDE_LINK = '<a class="guide-link" href="/companions" id="pr-guide">認識你的情緒小夥伴</a>';
 
 function recordsLink() {
   const count = loadRecords(storage).length;
