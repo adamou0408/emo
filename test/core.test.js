@@ -149,9 +149,19 @@ test('名稱資料壞掉時用預設名', () => {
   assert.equal(names.joy, '小陽');
 });
 
-test('畫面文案沒有連續天數或懲罰式用語', () => {
+test('畫面文案（含主管練習室）沒有連續天數或懲罰式用語', () => {
   const banned = ['連續', '天數', 'streak', '中斷', '負面', '失敗', '懲罰', '偷懶', '錯過', '落後'];
-  const files = ['public/index.html', 'public/src/app.js', 'public/src/companions.js'];
+  const files = [
+    'public/index.html',
+    'public/src/app.js',
+    'public/src/companions.js',
+    // 主管練習室：畫面、情境與部屬文案、安全提醒、後端回給畫面的訊息與提示
+    'public/src/practice-view.js',
+    'public/src/practice-data.js',
+    'public/src/practice-safety.js',
+    'public/src/practice.js',
+    'server/coach.js',
+  ];
   for (const file of files) {
     const text = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8').toLowerCase();
     for (const word of banned) {

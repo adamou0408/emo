@@ -1,5 +1,5 @@
 // 先走網路、失敗才用快取：上線新版本時使用者馬上拿到，離線時仍可使用。
-const CACHE = 'emo-v1';
+const CACHE = 'emo-v2';
 const SHELL = [
   '/',
   '/index.html',
@@ -8,6 +8,10 @@ const SHELL = [
   '/src/app.js',
   '/src/core.js',
   '/src/companions.js',
+  '/src/practice.js',
+  '/src/practice-data.js',
+  '/src/practice-safety.js',
+  '/src/practice-view.js',
   '/icons/icon.svg',
   '/icons/icon-192.png',
 ];
@@ -27,7 +31,9 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
+  const url = new URL(request.url);
+  if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+  if (url.pathname.startsWith('/api/')) return; // API 一律走網路，不進快取
   event.respondWith(
     fetch(request)
       .then((response) => {

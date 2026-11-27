@@ -8,6 +8,14 @@ import {
   loadNames,
   renameCompanion,
 } from './core.js';
+import {
+  handlePracticeClick,
+  handlePracticeInput,
+  handlePracticeKeydown,
+  handlePracticeSubmit,
+  initPractice,
+  renderPractice,
+} from './practice-view.js';
 
 // localStorage 在無痕模式或被封鎖時可能丟錯；退回記憶體，畫面照常運作。
 const storage = (() => {
@@ -36,6 +44,7 @@ const storage = (() => {
 })();
 const view = document.getElementById('view');
 const tabs = [...document.querySelectorAll('.tab')];
+initPractice(view, storage);
 
 const state = {
   tab: 'home',
@@ -162,6 +171,7 @@ function renderHistory() {
 
 function render({ focus = false } = {}) {
   if (state.tab === 'history') renderHistory();
+  else if (state.tab === 'practice') renderPractice();
   else if (state.lastEntry) renderReply();
   else renderHome();
   for (const tab of tabs) {
@@ -211,6 +221,10 @@ document.getElementById('rename-cancel').addEventListener('click', () => dialog.
 
 // 畫面上的互動
 view.addEventListener('click', (event) => {
+  if (state.tab === 'practice') {
+    handlePracticeClick(event);
+    return;
+  }
   const target = event.target.closest('button');
   if (!target) return;
   const card = target.closest('.card');
@@ -237,11 +251,22 @@ view.addEventListener('click', (event) => {
 });
 
 view.addEventListener('input', (event) => {
+  if (state.tab === 'practice') {
+    handlePracticeInput(event);
+    return;
+  }
   if (event.target.type !== 'range') return;
   const card = event.target.closest('.card');
   const level = Number(event.target.value);
   state.selected.set(card.dataset.id, level);
   card.querySelector('output').textContent = `${level}・${INTENSITY_WORDS[level]}`;
+});
+
+view.addEventListener('submit', (event) => {
+  if (state.tab === 'practice') handlePracticeSubmit(event);
+});
+view.addEventListener('keydown', (event) => {
+  if (state.tab === 'practice') handlePracticeKeydown(event);
 });
 
 for (const tab of tabs) {

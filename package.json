@@ -9,5 +9,8 @@
     "test": "node --test",
     "smoke": "node scripts/smoke.cjs",
     "deploy": "node scripts/deploy.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.14.0"
   }
 }

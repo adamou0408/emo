@@ -16,8 +16,28 @@ const TYPES = {
   '.png': 'image/png',
 };
 
-export function startServer(port = PORT) {
+// 把 Node 的請求轉成標準 Request，交給練習室的後端處理（跟 Cloudflare Pages Function 同一份程式）。
+async function toRequest(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const body = chunks.length ? Buffer.concat(chunks) : undefined;
+  return new Request(new URL(req.url, 'http://localhost'), {
+    method: req.method,
+    headers: req.headers,
+    body: req.method === 'GET' || req.method === 'HEAD' ? undefined : body,
+  });
+}
+
+// practice：(request, action) => Response。沒給的話 /api 回 404，畫面會顯示「等待設定」。
+export function startServer(port = PORT, { practice } = {}) {
   const server = createServer(async (req, res) => {
+    const api = new URL(req.url, 'http://x').pathname.match(/^\/api\/practice\/([a-z]+)$/);
+    if (api && practice) {
+      const response = await practice(await toRequest(req), api[1]);
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      res.end(Buffer.from(await response.arrayBuffer()));
+      return;
+    }
     try {
       const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
       let file = normalize(join(ROOT, path));
@@ -35,6 +55,12 @@ export function startServer(port = PORT) {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  await startServer();
-  console.log(`情緒小夥伴：http://localhost:${PORT}`);
+  // 有設定 ANTHROPIC_API_KEY 和 ACCESS_CODE 時，本機也能真的對練。
+  let practice;
+  if (process.env.ANTHROPIC_API_KEY && process.env.ACCESS_CODE) {
+    const { handlePractice } = await import('../server/coach.js');
+    practice = (request, action) => handlePractice(request, process.env, action);
+  }
+  await startServer(PORT, { practice });
+  console.log(`情緒小夥伴：http://localhost:${PORT}${practice ? '（主管練習室已接上 Claude）' : ''}`);
 }
