@@ -18,7 +18,7 @@ export function mockReply(text) {
   return '嗯……我知道進度晚了，只是不知道從哪裡開始講。';
 }
 
-export const MOCK_FEEDBACK = (firstManagerLine) => ({
+export const MOCK_FEEDBACK = (firstManagerLine, emotionNote = '') => ({
   feelings: {
     intent: '你想讓他知道進度的嚴重性，並一起找出能趕上的做法。',
     impact: '一開始他感覺被追究、有點防衛；你問他的看法之後，他比較願意說出卡住的地方。',
@@ -37,6 +37,7 @@ export const MOCK_FEEDBACK = (firstManagerLine) => ({
     why: '先講事實再邀請他說明，他比較不會覺得被指責。',
   },
   next_step: '下次開場先用一句話描述你看到的事實，接著問一個開放式問題，然後安靜等他回答。',
+  emotion_note: emotionNote,
 });
 
 export function createMockClient({ calls = [], override } = {}) {
@@ -53,7 +54,9 @@ export function createMockClient({ calls = [], override } = {}) {
           }
           const transcript = params.messages[0].content;
           const first = (transcript.match(/主管：(.*)/) ?? [])[1] ?? '';
-          return textResponse(MOCK_FEEDBACK(first));
+          const chose = params.system[0].text.match(/主管練習前選了：([^。]+)。/);
+          const note = chose ? `你帶著${chose[1]}進去，開場的語氣比較急；焦慮也在提醒你，客戶的時間點對你很重要。` : '';
+          return textResponse(MOCK_FEEDBACK(first, note));
         },
       },
     },

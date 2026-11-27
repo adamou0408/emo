@@ -6,7 +6,7 @@ import {
 } from '../public/src/practice-data.js';
 import { hasCrisisSignal, hasUnlawfulIntent, screen } from '../public/src/practice-safety.js';
 import {
-  CODE_KEY, PRACTICE_KEY, addRecord, createApi, loadCode, loadRecords, saveCode, scenarioTitle, setupFromRecord,
+  CODE_KEY, PRACTICE_KEY, addRecord, setFeelingsAfter, createApi, loadCode, loadRecords, saveCode, scenarioTitle, setupFromRecord,
 } from '../public/src/practice.js';
 import { MOCK_FEEDBACK } from '../scripts/mock-claude.mjs';
 
@@ -50,7 +50,8 @@ test('練習紀錄只存情境、部屬類型、背景與回饋，不存逐字�
     { now: new Date('2026-11-27T08:00:00Z') });
   const records = loadRecords(storage);
   assert.deepEqual(records.map((r) => r.id), [second.id, first.id]);
-  assert.deepEqual(Object.keys(first).sort(), ['at', 'context', 'customScenario', 'feedback', 'id', 'personaId', 'scenarioId']);
+  assert.deepEqual(Object.keys(first).sort(),
+    ['at', 'context', 'customScenario', 'feedback', 'feelingsAfter', 'feelingsBefore', 'id', 'personaId', 'scenarioId']);
   assert.ok(!storage.map.get(PRACTICE_KEY).includes('messages'));
   assert.equal(records[0].customScenario, '開會常打斷人');
 });
@@ -99,4 +100,17 @@ test('前端 API：邀請碼放在標頭；沒有後端時當作還沒準備好�
 
   const denied = await createApi(async () => new Response(JSON.stringify({ error: 'bad_code', message: '邀請碼不正確' }), { status: 401 })).verify('x');
   assert.deepEqual(denied, { ok: false, error: 'bad_code', message: '邀請碼不正確' });
+});
+
+test('練習前後的情緒存在同一筆紀錄裡，不認識的小夥伴會被濾掉', () => {
+  const storage = fakeStorage();
+  const setup = { scenarioId: 'behind', customScenario: '', personaId: 'silent', context: {} };
+  const record = addRecord(storage, { setup, feedback: MOCK_FEEDBACK('a'), feelingsBefore: ['anxiety', 'nobody', 'anxiety'] });
+  assert.deepEqual(record.feelingsBefore, ['anxiety']);
+  assert.deepEqual(record.feelingsAfter, []);
+  setFeelingsAfter(storage, record.id, ['calm', 'tired']);
+  const reloaded = loadRecords(storage)[0];
+  assert.deepEqual(reloaded.feelingsBefore, ['anxiety']);
+  assert.deepEqual(reloaded.feelingsAfter, ['calm', 'tired']);
+  assert.equal(setFeelingsAfter(storage, 'missing', ['calm']), null);
 });

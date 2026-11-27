@@ -12,8 +12,11 @@ import {
   getPersona,
 } from './practice-data.js';
 import { CRISIS_NOTICE, UNLAWFUL_NOTICE, screen } from './practice-safety.js';
+import { COMPANIONS, getCompanion } from './companions.js';
+import { DEFAULT_INTENSITY, addEntry, loadNames } from './core.js';
 import {
   addRecord,
+  setFeelingsAfter,
   createApi,
   loadCode,
   loadRecords,
@@ -29,7 +32,7 @@ let view = null;
 const emptySetup = () => ({ scenarioId: '', customScenario: '', personaId: '', context: {} });
 
 const ps = {
-  step: 'intro', // intro | scenario | persona | context | chat | feedback | records | crisis
+  step: 'intro', // intro | scenario | persona | context | checkin | chat | feedback | records | crisis
   status: null, // null（還沒查）| 'loading' | { ready, missing }
   code: '',
   codeOk: false,
@@ -39,6 +42,10 @@ const ps = {
   busy: '', // '' | 'turn' | 'feedback' | 'verify'
   notice: null, // { kind: 'unlawful' | 'error', title?, body }
   feedback: null,
+  feelingsBefore: [], // 練習前選的小夥伴 id
+  feelingsAfter: [], // 練完後選的小夥伴 id
+  recordId: '',
+  afterVisits: null, // 練完後開門，小夥伴的回應
 };
 
 function escapeHtml(text) {
@@ -47,7 +54,16 @@ function escapeHtml(text) {
   ));
 }
 
+// 收回的句子也算回合：每一句都呼叫過一次 AI。
 const turnsUsed = () => ps.messages.filter((m) => m.role === 'manager').length;
+
+function companionChips(selected, act) {
+  const names = loadNames(storage);
+  return `<div class="feel-chips">${COMPANIONS.map((c) => `<button type="button" class="feel-chip" data-act="${act}" data-id="${c.id}"
+    aria-pressed="${selected.includes(c.id)}" style="--c:${c.color}"><i></i>${escapeHtml(names[c.id])}<span>${c.emotion}</span></button>`).join('')}</div>`;
+}
+
+const emotionNames = (ids) => ids.map((id) => getCompanion(id)?.emotion).filter(Boolean).join('、');
 
 export function initPractice(viewEl, store) {
   view = viewEl;
@@ -78,7 +94,7 @@ async function loadStatus() {
 
 // ---------- 畫面 ----------
 
-const PRIVACY = `<p class="privacy" id="pr-privacy">隱私說明：對練內容只會即時送到 AI 產生回應，伺服器不儲存、也不記錄任何對話。
+const PRIVACY = `<p class="privacy" id="pr-privacy">隱私說明：對練內容和你選的情緒只會即時送到 AI 產生回應，伺服器不儲存、也不記錄任何對話。
 練習紀錄（情境、部屬類型和回饋）只存在這台裝置的瀏覽器，不會上傳；逐字稿不會被保存。</p>`;
 
 function noticeHtml() {
@@ -88,7 +104,7 @@ function noticeHtml() {
 }
 
 function stepper(n) {
-  return `<p class="stepper">準備 ${n}／3</p>`;
+  return `<p class="stepper">準備 ${n}／4</p>`;
 }
 
 function renderIntro() {
@@ -169,13 +185,33 @@ function renderContext() {
     <p class="sub">回答越具體，部屬演得越像。不想寫的可以留白。</p>
     ${noticeHtml()}
     ${fields}
-    <button type="button" class="btn primary block" data-act="start" id="pr-start">開始對練</button>
+    <button type="button" class="btn primary block" data-act="to-checkin" id="pr-next">下一步</button>
     <button type="button" class="btn ghost block" data-act="to-persona">上一步</button>`;
 }
 
-function bubble(m) {
+function renderCheckIn() {
+  view.innerHTML = `
+    ${stepper(4)}
+    <h1>開始之前，誰來找你了？</h1>
+    <p class="sub">想到等一下要談的事，現在心裡有誰？可以不只一位，也可以不選。教練會在回饋裡一起看看他們。</p>
+    ${noticeHtml()}
+    ${companionChips(ps.feelingsBefore, 'feel-before')}
+    <button type="button" class="btn primary block" data-act="start" id="pr-start">開始對練</button>
+    <button type="button" class="btn ghost block" data-act="to-context">上一步</button>`;
+}
+
+// 只有最新一組（你說、他回）可以收回；不能重抽部屬的回覆。
+function canRetract() {
+  const last = ps.messages[ps.messages.length - 1];
+  return !ps.busy && last?.role === 'report' && !last.retracted && turnsUsed() < MAX_TURNS;
+}
+
+function bubble(m, i) {
   const who = m.role === 'manager' ? '你' : '部屬';
-  return `<div class="msg ${m.role}"><span class="msg-who">${who}</span><p>${escapeHtml(m.text)}</p></div>`;
+  const tag = m.retracted ? '<span class="msg-tag">已收回</span>' : '';
+  const retract = m.role === 'manager' && i === ps.messages.length - 2 && canRetract()
+    ? '<button type="button" class="retract" data-act="retract" id="pr-retract">收回，換個說法</button>' : '';
+  return `<div class="msg ${m.role}${m.retracted ? ' retracted' : ''}"><span class="msg-who">${who}${tag}</span><p>${escapeHtml(m.text)}</p>${retract}</div>`;
 }
 
 function renderChat() {
@@ -197,6 +233,7 @@ function renderChat() {
       ${busyLine}
     </div>
     ${noticeHtml()}
+    ${ps.messages.some((m) => m.retracted) ? '<p class="hint">收回的句子部屬不會記得，但回饋時會拿來跟新的說法對照。</p>' : ''}
     ${full ? `<p class="hint" id="pr-full">這次對練的 ${MAX_TURNS} 句都用上了，來看看回饋吧。</p>` : `
     <form class="composer" data-form="say">
       <label class="visually-hidden" for="pr-say">你要對部屬說的話</label>
@@ -206,7 +243,8 @@ function renderChat() {
         <button type="submit" class="btn primary" id="pr-send" ${disabled || !ps.draft.trim() ? 'disabled' : ''}>送出</button>
       </div>
     </form>`}
-    <button type="button" class="btn ghost block" data-act="finish" id="pr-finish" ${used === 0 || ps.busy ? 'disabled' : ''}>結束對練，看回饋</button>`;
+    <button type="button" class="btn ghost block" data-act="finish" id="pr-finish" ${used === 0 || ps.busy ? 'disabled' : ''}>結束對練，看回饋</button>
+    <button type="button" class="btn ghost block" data-act="adjust" id="pr-adjust" ${ps.busy ? 'disabled' : ''}>調整設定，重新開始</button>`;
 }
 
 function listHtml(items) {
@@ -230,7 +268,31 @@ function feedbackHtml(fb) {
       <p class="quote after"><span>可以這樣說</span>${escapeHtml(fb.rewrite.better)}</p>
       ${fb.rewrite.why ? `<p class="hint">${escapeHtml(fb.rewrite.why)}</p>` : ''}
     </section>
-    <section class="fb" id="pr-fb-next"><h2>下次可以試</h2><p>${escapeHtml(fb.nextStep)}</p></section>`;
+    <section class="fb" id="pr-fb-next"><h2>下次可以試</h2><p>${escapeHtml(fb.nextStep)}</p></section>
+    ${fb.emotionNote ? `<section class="fb" id="pr-fb-emotion"><h2>你帶進對話裡的情緒</h2><p>${escapeHtml(fb.emotionNote)}</p></section>` : ''}`;
+}
+
+function feelingsLine(before, after) {
+  const parts = [];
+  if (before?.length) parts.push(`練習前：${emotionNames(before)}`);
+  if (after?.length) parts.push(`練習後：${emotionNames(after)}`);
+  return parts.length ? `<p class="hint feel-line">${escapeHtml(parts.join('　→　'))}</p>` : '';
+}
+
+function afterCheckInHtml() {
+  if (ps.afterVisits) {
+    const names = loadNames(storage);
+    return `<section class="fb" id="pr-after">
+      <h2>練完了，他們想跟你說</h2>
+      ${ps.afterVisits.map((v) => `<p class="after-visit" style="--c:${getCompanion(v.companionId).color}"><strong>${escapeHtml(names[v.companionId])}</strong>${escapeHtml(v.response)}</p>`).join('')}
+      <p class="hint">這次的來訪也記在「記錄」裡了。</p>
+    </section>`;
+  }
+  return `<section class="fb" id="pr-after">
+    <h2>練完了，現在誰來找你？</h2>
+    ${companionChips(ps.feelingsAfter, 'feel-after')}
+    <button type="button" class="btn primary block" data-act="after-open" id="pr-after-open" ${ps.feelingsAfter.length ? '' : 'disabled'}>幫他們開門</button>
+  </section>`;
 }
 
 function renderFeedback() {
@@ -238,8 +300,11 @@ function renderFeedback() {
   view.innerHTML = `
     <h1>這次的回饋</h1>
     <p class="sub">${escapeHtml(scenarioTitle(ps.setup))}・${escapeHtml(persona.title)}</p>
+    ${feelingsLine(ps.feelingsBefore, [])}
     ${feedbackHtml(ps.feedback)}
+    ${afterCheckInHtml()}
     <button type="button" class="btn primary block" data-act="retry" id="pr-retry">同一情境、同一位部屬再練一次</button>
+    <button type="button" class="btn ghost block" data-act="to-context">調整設定再練</button>
     <button type="button" class="btn ghost block" data-act="to-scenario">換一個情境</button>
     <button type="button" class="btn ghost block" data-act="records">看過去的練習</button>
     <p class="hint">這份回饋已經存在這台裝置的瀏覽器裡。</p>`;
@@ -253,6 +318,7 @@ function renderRecords() {
     <time datetime="${escapeHtml(r.at)}">${dateFormat.format(new Date(r.at))}</time>
     <p class="record-title">${escapeHtml(scenarioTitle(r))}・${escapeHtml(getPersona(r.personaId).title)}</p>
     ${r.customScenario ? `<p class="hint">${escapeHtml(r.customScenario)}</p>` : ''}
+    ${feelingsLine(r.feelingsBefore, r.feelingsAfter)}
     <details><summary>看回饋</summary>${feedbackHtml(r.feedback)}</details>
     <button type="button" class="btn ghost" data-act="retry-record" data-id="${escapeHtml(r.id)}">用這個設定再練一次</button>
   </article>`).join('');
@@ -280,6 +346,7 @@ export function renderPractice() {
     scenario: renderScenario,
     persona: renderPersona,
     context: renderContext,
+    checkin: renderCheckIn,
     chat: renderChat,
     feedback: renderFeedback,
     records: renderRecords,
@@ -339,7 +406,47 @@ function start() {
   ps.messages = [];
   ps.draft = '';
   ps.feedback = null;
+  ps.feelingsAfter = [];
+  ps.afterVisits = null;
+  ps.recordId = '';
   goStep('chat');
+}
+
+// 再練一次之前，先回到「誰來找你了」：心情可能跟上一次不一樣。
+function toCheckIn() {
+  ps.feelingsBefore = [];
+  goStep('checkin');
+}
+
+function toggle(list, id) {
+  return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+}
+
+// 收回最新一組：部屬不會記得，但回饋會拿來對照；那句話放回輸入框讓你改。
+function retract() {
+  if (!canRetract()) return;
+  const n = ps.messages.length;
+  const said = ps.messages[n - 2].text;
+  ps.messages = ps.messages.map((m, i) => (i >= n - 2 ? { ...m, retracted: true } : m));
+  ps.draft = said;
+  ps.notice = null;
+  rerender({ focus: '#pr-say', scroll: true });
+}
+
+function adjust() {
+  if (ps.busy) return;
+  if (ps.messages.length && !window.confirm('調整設定會重新開始，這次的對話會清空。確定嗎？')) return;
+  ps.messages = [];
+  ps.draft = '';
+  goStep('context');
+}
+
+function openAfter() {
+  if (!ps.feelingsAfter.length) return;
+  const entry = addEntry(storage, ps.feelingsAfter.map((companionId) => ({ companionId, intensity: DEFAULT_INTENSITY })));
+  ps.afterVisits = entry.visits;
+  if (ps.recordId) setFeelingsAfter(storage, ps.recordId, ps.feelingsAfter);
+  rerender({ focus: '#pr-after' });
 }
 
 async function say() {
@@ -382,11 +489,11 @@ async function finish() {
   ps.busy = 'feedback';
   ps.notice = null;
   rerender({ scroll: true });
-  const result = await api.feedback(ps.code, ps.setup, ps.messages);
+  const result = await api.feedback(ps.code, ps.setup, ps.messages, { before: ps.feelingsBefore });
   ps.busy = '';
   if (result.ok && result.type === 'feedback') {
     ps.feedback = result.feedback;
-    addRecord(storage, { setup: ps.setup, feedback: result.feedback });
+    ps.recordId = addRecord(storage, { setup: ps.setup, feedback: result.feedback, feelingsBefore: ps.feelingsBefore }).id;
     ps.messages = [];
     return goStep('feedback');
   }
@@ -419,9 +526,18 @@ export function handlePracticeClick(event) {
   } else if (act === 'to-scenario') goStep('scenario');
   else if (act === 'to-persona') goStep('persona');
   else if (act === 'to-context') goStep('context');
+  else if (act === 'to-checkin') goStep('checkin');
   else if (act === 'start') start();
   else if (act === 'finish') finish();
-  else if (act === 'retry') start();
+  else if (act === 'retry') toCheckIn();
+  else if (act === 'retract') retract();
+  else if (act === 'adjust') adjust();
+  else if (act === 'after-open') openAfter();
+  else if (act === 'feel-before' || act === 'feel-after') {
+    const key = act === 'feel-before' ? 'feelingsBefore' : 'feelingsAfter';
+    ps[key] = toggle(ps[key], id);
+    rerender({ focus: `.feel-chip[data-act="${act}"][data-id="${id}"]` });
+  }
   else if (act === 'retry-record') {
     const record = loadRecords(storage).find((r) => r.id === id);
     if (!record) return;
@@ -431,7 +547,7 @@ export function handlePracticeClick(event) {
       ps.pendingRetry = true;
       return goStepKeepNotice('intro');
     }
-    start();
+    toCheckIn();
   }
 }
 
@@ -465,7 +581,7 @@ export async function handlePracticeSubmit(event) {
     await enter();
     if (ps.codeOk && ps.pendingRetry) {
       ps.pendingRetry = false;
-      start();
+      toCheckIn();
     }
   } else if (form.dataset.form === 'say') {
     await say();

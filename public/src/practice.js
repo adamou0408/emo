@@ -1,6 +1,7 @@
 // 主管練習室的前端邏輯：練習紀錄、邀請碼、呼叫後端。不碰 DOM。
 // 練習紀錄只存情境、部屬類型與回饋，不存對話逐字稿，而且只存在這台裝置的瀏覽器。
 
+import { getCompanion } from './companions.js';
 import { CUSTOM_SCENARIO_ID, getPersona, getScenario } from './practice-data.js';
 
 export const PRACTICE_KEY = 'emo.practice.v1';
@@ -29,7 +30,10 @@ export function loadRecords(storage) {
   return data.filter(isValidRecord).sort((a, b) => b.at.localeCompare(a.at));
 }
 
-export function addRecord(storage, { setup, feedback }, { now = new Date(), rng = Math.random } = {}) {
+const companionIds = (list) => (Array.isArray(list) ? [...new Set(list)].filter((id) => getCompanion(id)) : []);
+
+// feelingsBefore／feelingsAfter：練習前後「誰來找你了」選的小夥伴 id。
+export function addRecord(storage, { setup, feedback, feelingsBefore = [] }, { now = new Date(), rng = Math.random } = {}) {
   const at = now.toISOString();
   const record = {
     id: `${at}-${Math.floor(rng() * 1e9).toString(36)}`,
@@ -39,8 +43,20 @@ export function addRecord(storage, { setup, feedback }, { now = new Date(), rng 
     personaId: setup.personaId,
     context: { ...(setup.context ?? {}) },
     feedback,
+    feelingsBefore: companionIds(feelingsBefore),
+    feelingsAfter: [],
   };
   const records = [record, ...loadRecords(storage)].slice(0, MAX_RECORDS);
+  storage.setItem(PRACTICE_KEY, JSON.stringify(records));
+  return record;
+}
+
+// 練完後再開一次門：把「練習後」的情緒補進同一筆紀錄。
+export function setFeelingsAfter(storage, recordId, ids) {
+  const records = loadRecords(storage);
+  const record = records.find((r) => r.id === recordId);
+  if (!record) return null;
+  record.feelingsAfter = companionIds(ids);
   storage.setItem(PRACTICE_KEY, JSON.stringify(records));
   return record;
 }
@@ -106,6 +122,6 @@ export function createApi(fetchImpl = (...args) => fetch(...args)) {
     status: () => request(fetchImpl, 'status', { method: 'GET' }),
     verify: (code) => request(fetchImpl, 'verify', { code }),
     turn: (code, setup, messages) => request(fetchImpl, 'turn', { code, body: { setup, messages } }),
-    feedback: (code, setup, messages) => request(fetchImpl, 'feedback', { code, body: { setup, messages } }),
+    feedback: (code, setup, messages, checkIn) => request(fetchImpl, 'feedback', { code, body: { setup, messages, checkIn } }),
   };
 }

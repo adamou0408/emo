@@ -15,6 +15,7 @@ import {
   handlePractice,
   parseFeedback,
   parseTurn,
+  validateCheckIn,
   validateMessages,
   validateSetup,
 } from '../server/coach.js';
@@ -102,7 +103,7 @@ test('回饋請求：逐字稿標出主管與部屬，要求五個固定欄位',
   const req = buildFeedbackRequest(validateSetup(SETUP), messages);
   assert.equal(req.output_config.effort, 'high');
   assert.equal(req.fallbacks, 'default');
-  assert.deepEqual(req.output_config.format.schema.required, ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step']);
+  assert.deepEqual(req.output_config.format.schema.required, ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step', 'emotion_note']);
   assert.equal(req.messages.length, 1);
   assert.match(req.messages[0].content, /主管：我們聊聊進度 1\n部屬：好 1\n主管：我們聊聊進度 2/);
   assert.match(req.system[0].text, /不要替任何人貼標籤/);
@@ -222,7 +223,8 @@ test('回饋解析：五個固定欄位，多的點數只取前 2 點', () => {
   const raw = MOCK_FEEDBACK('你為什麼又晚了');
   raw.strengths.push('第三點');
   const fb = parseFeedback(jsonReply(raw));
-  assert.deepEqual(Object.keys(fb), ['feelings', 'strengths', 'adjustments', 'rewrite', 'nextStep']);
+  assert.deepEqual(Object.keys(fb), ['feelings', 'strengths', 'adjustments', 'rewrite', 'nextStep', 'emotionNote']);
+  assert.equal(fb.emotionNote, '');
   assert.ok(fb.feelings.intent && fb.feelings.impact);
   assert.equal(fb.strengths.length, 2);
   assert.equal(fb.adjustments.length, 2);
@@ -347,4 +349,65 @@ test('後端不記錄對話內容：處理請求時不呼叫 console', async () 
     Object.assign(console, original);
   }
   assert.deepEqual(logged, []);
+});
+
+// ---------- 收回，換個說法 ----------
+
+function withRetracted() {
+  return [
+    { role: 'manager', text: '你到底為什麼又晚了！', retracted: true },
+    { role: 'report', text: '你現在怪我也沒用吧。', retracted: true },
+    { role: 'manager', text: '我想先聽聽你那邊遇到什麼狀況？' },
+  ];
+}
+
+test('收回的那組部屬看不到，部屬從收回前的狀態接話；收回的句子也算回合', async () => {
+  const messages = validateMessages(withRetracted(), 'turn');
+  const req = buildTurnRequest(validateSetup(SETUP), messages);
+  assert.deepEqual(req.messages, [{ role: 'user', content: '我想先聽聽你那邊遇到什麼狀況？' }]);
+
+  const result = await call('turn', { setup: SETUP, messages: withRetracted() });
+  assert.equal(result.data.type, 'reply');
+  assert.equal(result.data.turnsLeft, MAX_TURNS - 2);
+  assert.equal(result.calls[0].messages.length, 1);
+});
+
+test('回饋看得到收回的嘗試，並被要求對照新舊說法', () => {
+  const messages = validateMessages([...withRetracted(), { role: 'report', text: '其實規格一直改。' }], 'feedback');
+  const req = buildFeedbackRequest(validateSetup(SETUP), messages);
+  assert.match(req.messages[0].content, /〔收回〕主管：你到底為什麼又晚了！\n〔收回〕部屬：你現在怪我也沒用吧。\n主管：我想先聽聽/);
+  assert.match(req.system[0].text, /〔收回〕/);
+  assert.match(req.system[0].text, /對照/);
+});
+
+test('收回一定成對；收回的句子也受回合上限限制', () => {
+  assert.throws(() => validateMessages([
+    { role: 'manager', text: 'a', retracted: true }, { role: 'report', text: 'b' }, { role: 'manager', text: 'c' },
+  ], 'turn'), { code: 'bad_request' });
+  assert.throws(() => validateMessages([{ role: 'manager', text: 'a', retracted: true }], 'turn'), { code: 'bad_request' });
+  const many = conversation(MAX_TURNS + 1).map((m, i, all) => (i < all.length - 1 ? { ...m, retracted: true } : m));
+  assert.throws(() => validateMessages(many, 'turn'), { code: 'too_many_turns' });
+});
+
+// ---------- 練習前的情緒 ----------
+
+test('練習前的情緒會進到回饋提示，用小夥伴的觀點描述', () => {
+  const checkIn = validateCheckIn({ before: ['anxiety', 'anger', 'anxiety'] });
+  assert.deepEqual(checkIn.before, ['anxiety', 'anger']);
+  const req = buildFeedbackRequest(validateSetup(SETUP), validateMessages(conversation(1), 'feedback'), checkIn);
+  assert.match(req.system[0].text, /主管練習前選了：焦慮、生氣/);
+  assert.match(req.system[0].text, /沒有純粹不好的情緒/);
+  assert.match(buildFeedbackRequest(validateSetup(SETUP), validateMessages(conversation(1), 'feedback')).system[0].text, /沒有選情緒/);
+  assert.deepEqual(validateCheckIn(undefined), { before: [] });
+  assert.throws(() => validateCheckIn({ before: ['nobody'] }), { code: 'bad_request' });
+  assert.throws(() => validateCheckIn({ before: 'anxiety' }), { code: 'bad_request' });
+});
+
+test('回饋端點：有選情緒時回傳情緒那段；壞掉的情緒清單回 400 且不呼叫 AI', async () => {
+  const ok = await call('feedback', { setup: SETUP, messages: conversation(1), checkIn: { before: ['anxiety'] } });
+  assert.equal(ok.status, 200);
+  assert.match(ok.data.feedback.emotionNote, /焦慮/);
+  const bad = await call('feedback', { setup: SETUP, messages: conversation(1), checkIn: { before: ['x'] } });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.calls.length, 0);
 });

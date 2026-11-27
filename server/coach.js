@@ -14,6 +14,7 @@ import {
   getPersona,
   getScenario,
 } from '../public/src/practice-data.js';
+import { getCompanion } from '../public/src/companions.js';
 import {
   CRISIS_NOTICE,
   UNLAWFUL_NOTICE,
@@ -101,6 +102,8 @@ export function validateSetup(setup) {
 }
 
 // 對話必須由主管開始、主管與部屬輪流；mode 為 'turn' 時最後一句要是主管。
+// 「收回，換個說法」的那一組（主管一句＋部屬一句）標 retracted: true：
+// 部屬不會再看到，但回饋時拿來對照。收回的句子也算回合（每句都呼叫過一次 AI）。
 export function validateMessages(messages, mode) {
   if (!Array.isArray(messages)) throw new RequestError(400, 'bad_request', MESSAGES.badRequest);
   const clean = [];
@@ -112,7 +115,13 @@ export function validateMessages(messages, mode) {
     const text = m.text.trim();
     if (!text) throw new RequestError(400, 'bad_request', MESSAGES.badRequest);
     if (charCount(text) > MAX_CHARS) throw new RequestError(400, 'too_long', MESSAGES.tooLong);
-    clean.push({ role, text });
+    clean.push(m.retracted === true ? { role, text, retracted: true } : { role, text });
+  }
+  // 收回一定是成對的：主管那句和部屬對它的回覆。
+  for (let i = 0; i < clean.length; i += 2) {
+    const a = Boolean(clean[i].retracted);
+    const b = Boolean(clean[i + 1]?.retracted);
+    if (a !== b || (a && !clean[i + 1])) throw new RequestError(400, 'bad_request', MESSAGES.badRequest);
   }
   const turns = clean.filter((m) => m.role === 'manager').length;
   if (turns > MAX_TURNS) throw new RequestError(400, 'too_many_turns', MESSAGES.tooManyTurns);
@@ -121,6 +130,16 @@ export function validateMessages(messages, mode) {
     throw new RequestError(400, 'bad_request', MESSAGES.badRequest);
   }
   return clean;
+}
+
+// 練習前「誰來找你了」：小夥伴 id 的清單，可以是空的。
+export function validateCheckIn(checkIn) {
+  if (checkIn == null) return { before: [] };
+  const before = checkIn.before ?? [];
+  if (!Array.isArray(before) || before.length > 6 || !before.every((id) => getCompanion(id))) {
+    throw new RequestError(400, 'bad_request', MESSAGES.badRequest);
+  }
+  return { before: [...new Set(before)] };
 }
 
 // ---------- 提示 ----------
@@ -168,7 +187,13 @@ ${contextText(setup)}
 只輸出符合格式的 JSON。`;
 }
 
-export function buildFeedbackSystem(setup) {
+function checkInText(checkIn) {
+  if (!checkIn.before.length) return '主管練習前沒有選情緒。';
+  const names = checkIn.before.map((id) => getCompanion(id).emotion).join('、');
+  return `主管練習前選了：${names}。在這個產品裡，每個情緒都被當成帶著訊息來找人的小夥伴，沒有純粹不好的情緒。`;
+}
+
+export function buildFeedbackSystem(setup, checkIn = { before: [] }) {
   const persona = getPersona(setup.personaId);
   return `你是一位有經驗、說話直接但溫暖的主管教練。一位初階主管剛和 AI 扮演的部屬練習了一段困難對話，請根據逐字稿給他具體回饋。
 
@@ -181,10 +206,15 @@ ${contextText(setup)}
 ## 部屬類型
 ${persona.title}：${persona.behavior}
 
+## 主管練習前的情緒
+${checkInText(checkIn)}
+
 ## 回饋原則
 - 你是教練，不是審判。不要替任何人貼標籤（例如「霸凌」「情緒勒索」「有毒」「控制狂」），只描述具體的行為和它可能造成的影響。
 - 要具體：引用或指出主管實際說過的話。該指出問題時直接指出，不要只附和，也不要只用反問帶過。
 - 用台灣慣用的繁體中文，對主管用「你」稱呼，對部屬用「他」。每一點 1 到 3 句。
+- 逐字稿裡標「〔收回〕」的兩行，是主管說完後收回、換個說法重來的嘗試，部屬後來沒有聽到。
+  有收回時，請把原本的說法和新的說法拿來對照，說出差在哪裡。
 
 ## 要寫的內容
 - feelings.intent：主管這段對話想傳達或達成的意圖（站在主管的角度寫）。
@@ -195,6 +225,8 @@ ${persona.title}：${persona.behavior}
 - rewrite.better：把那句改寫成更好的版本，是主管可以直接說出口的話。
 - rewrite.why：一句話說明改寫後好在哪裡。
 - next_step：一個下次可以試的具體做法，要具體到能直接照著做。
+- emotion_note：主管練習前沒有選情緒時填空字串。有選時用 1 到 2 句寫：這些情緒可能怎麼出現在他說的話裡，
+  以及它們可能帶著什麼訊息（例如焦慮在提醒他時間點很重要）。是理解，不是批評。
 
 只輸出符合格式的 JSON。`;
 }
@@ -231,8 +263,9 @@ export const FEEDBACK_SCHEMA = {
       additionalProperties: false,
     },
     next_step: { type: 'string' },
+    emotion_note: { type: 'string' },
   },
-  required: ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step'],
+  required: ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step', 'emotion_note'],
   additionalProperties: false,
 };
 
@@ -249,22 +282,25 @@ function baseParams(system, effort, schema) {
 }
 
 // 主管 → user、部屬 → assistant。部屬過去的回覆用它當時輸出的 JSON 形式放回去，格式前後一致。
+// 收回的那幾句不給部屬看：換個說法時，部屬是從收回前的狀態接話。
 export function buildTurnRequest(setup, messages) {
   return {
     ...baseParams(buildRoleplaySystem(setup), TURN_EFFORT, TURN_SCHEMA),
-    messages: messages.map((m) => (m.role === 'manager'
+    messages: messages.filter((m) => !m.retracted).map((m) => (m.role === 'manager'
       ? { role: 'user', content: m.text }
       : { role: 'assistant', content: JSON.stringify({ signal: 'none', reply: m.text }) })),
   };
 }
 
 export function transcriptText(messages) {
-  return messages.map((m) => `${m.role === 'manager' ? '主管' : '部屬'}：${m.text}`).join('\n');
+  return messages
+    .map((m) => `${m.retracted ? '〔收回〕' : ''}${m.role === 'manager' ? '主管' : '部屬'}：${m.text}`)
+    .join('\n');
 }
 
-export function buildFeedbackRequest(setup, messages) {
+export function buildFeedbackRequest(setup, messages, checkIn = { before: [] }) {
   return {
-    ...baseParams(buildFeedbackSystem(setup), FEEDBACK_EFFORT, FEEDBACK_SCHEMA),
+    ...baseParams(buildFeedbackSystem(setup, checkIn), FEEDBACK_EFFORT, FEEDBACK_SCHEMA),
     messages: [{
       role: 'user',
       content: `以下是這次練習的逐字稿：\n<transcript>\n${transcriptText(messages)}\n</transcript>\n請依照格式給回饋。`,
@@ -329,6 +365,7 @@ export function parseFeedback(response) {
       why: str(data?.rewrite?.why),
     },
     nextStep: str(data?.next_step),
+    emotionNote: str(data?.emotion_note),
   };
   const complete = feedback.feelings.intent && feedback.feelings.impact
     && feedback.strengths.length === 2 && feedback.adjustments.length === 2
@@ -406,7 +443,8 @@ export async function handlePractice(request, env = {}, action, { makeClient = c
       const turnsUsed = messages.filter((m) => m.role === 'manager').length;
       return json(200, { type: 'reply', reply: result.reply, turnsLeft: MAX_TURNS - turnsUsed });
     }
-    const feedback = parseFeedback(await client.beta.messages.create(buildFeedbackRequest(setup, messages)));
+    const checkIn = validateCheckIn(body?.checkIn);
+    const feedback = parseFeedback(await client.beta.messages.create(buildFeedbackRequest(setup, messages, checkIn)));
     return json(200, { type: 'feedback', feedback });
   } catch (error) {
     if (error instanceof RequestError) return json(error.status, errorBody(error.code, error.message));
