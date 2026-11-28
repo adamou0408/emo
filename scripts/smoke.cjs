@@ -12,7 +12,7 @@ const PORT = 5174;
 (async () => {
   const { startServer } = await import('./serve.mjs');
   const { handlePractice } = await import('../server/coach.js');
-  const { createMockClient, MOCK_FEEDBACK } = await import('./mock-claude.mjs');
+  const { createMockClient, MOCK_FEEDBACK, MOCK_BRIEF } = await import('./mock-claude.mjs');
   const MOCK_NEXT_STEP = MOCK_FEEDBACK('').next_step;
   const { createMockD1 } = await import('./mock-d1.mjs');
   const CODE = 'smoke-code';
@@ -118,7 +118,21 @@ const PORT = 5174;
       await page.locator('#pr-start').tap();
       assert.match(await page.locator('.stage').textContent(), /抱著筆電/);
       assert.equal(await page.locator('#pr-focus').count(), 0, '第一次練沒有刻意練的重點');
+
+      // 對練中可以展開狀況卡，不用離開對話；重畫後仍保持展開
+      const peekOpen = () => page.locator('#pr-brief-peek').evaluate((el) => el.open);
+      assert.equal(await peekOpen(), false, '一開始是收合的');
+      assert.ok(!(await page.locator('#pr-brief-card').isVisible()));
+      await page.locator('#pr-brief-peek summary').tap();
+      assert.ok(await page.locator('#pr-brief-card').isVisible());
+      assert.ok((await page.locator('#pr-brief-card').textContent()).includes(MOCK_BRIEF.person.slice(0, 12)));
+      assert.equal(await page.locator('#pr-brief-card').count(), 1, '對練畫面只有一份狀況卡');
+      await shot('4b-brief-peek');
+      await noOverflow('對練中的狀況卡');
       assert.match(await say('你到底為什麼又晚了！'), /怪我/, '被逼急時應該防衛');
+      assert.equal(await peekOpen(), true, '送出一句、他回覆之後仍是展開的');
+      await page.locator('#pr-brief-peek summary').tap();
+      assert.equal(await peekOpen(), false);
       assert.match(await say('我想聽聽你覺得卡在哪裡，這陣子辛苦了。'), /放鬆/, '被理解時應該軟化');
       assert.match(await page.locator('#pr-turns').textContent(), /已說 2／12 句/);
 
@@ -139,7 +153,9 @@ const PORT = 5174;
       await shot('4-chat');
       await page.fill('#pr-say', '');
 
-      // 回饋
+      // 回饋（結束前把狀況卡展開，確認下一次對練會回到收合）
+      await page.locator('#pr-brief-peek summary').tap();
+      assert.equal(await page.locator('#pr-brief-peek').evaluate((el) => el.open), true);
       await page.locator('#pr-finish').tap();
       await page.locator('#pr-fb-feelings').waitFor();
       for (const id of ['#pr-fb-feelings', '#pr-fb-strengths', '#pr-fb-adjust', '#pr-fb-rewrite', '#pr-fb-next']) {
@@ -179,6 +195,7 @@ const PORT = 5174;
       assert.match(await page.locator('.chat-title').textContent(), /進度延遲/);
       await page.locator('#pr-focus').waitFor();
       assert.ok((await page.locator('#pr-focus').textContent()).includes(MOCK_NEXT_STEP), '對練畫面列出這次刻意練的那一點');
+      assert.equal(await page.locator('#pr-brief-peek').evaluate((el) => el.open), false, '再練一次時狀況卡回到收合');
       await shot('6-focus-chat');
       await noOverflow('刻意練的重點');
       for (let i = 1; i <= 12; i++) await say(`第 ${i} 句，我們來談談進度`);

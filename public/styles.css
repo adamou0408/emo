@@ -281,3 +281,18 @@ textarea, .code-form input {
 .focus-pin span { display: block; font-size: .8rem; font-weight: 700; color: var(--accent); }
 .fb.focus { border-color: var(--accent); }
 .fb.focus .hint { margin: 0 0 6px; }
+
+/* 對練中展開狀況卡 */
+.brief-peek { margin: 8px 0; }
+.brief-peek summary {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--ink-soft);
+  font-weight: 700;
+  cursor: pointer;
+}
+.brief-peek .brief { max-height: 50vh; overflow-y: auto; margin-top: 8px; }
+.brief-peek summary::-webkit-details-marker { display: none; }
+.brief-peek summary::before { content: '▸'; margin-right: 6px; }
+.brief-peek[open] summary::before { content: '▾'; }

@@ -44,6 +44,7 @@ const ps = {
   contribution: null, // null | { state: 'preview' | 'saved' | 'rejected', scenario?, message? }
   notice: null, // { kind: 'unlawful' | 'error', title?, body }
   feedback: null,
+  briefOpen: false, // 對練中「看狀況卡」有沒有展開
   focus: '', // 這次刻意練的那一點（上次回饋的「下次可以試」）；只送到回饋，不送到角色扮演
   pendingRetry: null,
 };
@@ -222,6 +223,9 @@ function retract() {
 }
 
 function renderChat() {
+  // 重畫會換掉整個畫面，先記住狀況卡現在是展開還是收合（toggle 事件不會冒泡，所以在這裡讀）。
+  const peek = view.querySelector('#pr-brief-peek');
+  if (peek) ps.briefOpen = peek.open;
   const { brief } = ps.setup;
   const used = turnsUsed();
   const full = used >= MAX_TURNS;
@@ -235,6 +239,7 @@ function renderChat() {
       <p class="chat-count" id="pr-turns">已說 ${used}／${MAX_TURNS} 句</p>
     </div>
     ${ps.focus ? `<p class="focus-pin" id="pr-focus"><span>這次刻意練</span>${escapeHtml(ps.focus)}</p>` : ''}
+    <details class="brief-peek" id="pr-brief-peek" ${ps.briefOpen ? 'open' : ''}><summary>看狀況卡</summary>${briefHtml(brief)}</details>
     <div class="chat" id="pr-chat" aria-live="polite">
       <p class="stage">${escapeHtml(brief.opening)}</p>
       ${ps.messages.map(bubble).join('')}
@@ -488,6 +493,7 @@ async function makeBrief() {
 }
 
 function start() {
+  ps.briefOpen = false;
   ps.messages = [];
   ps.draft = '';
   ps.feedback = null;
