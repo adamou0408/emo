@@ -1,9 +1,8 @@
-// 心靈健身房的畫面：描述狀況 → 讀懂狀況（AI 現場生成）→ 對練 → 回饋。
+// 練習的畫面：點選情境（可補充描述）→ 讀懂狀況（AI 現場生成）→ 對練 → 回饋。
 // 狀態放在這個模組裡；app.js 只負責儲存空間和事件轉接。
 
 import {
   BRIEF_FIELDS,
-  EXAMPLES,
   MAX_CHARS,
   MAX_SITUATION_CHARS,
   MAX_TURNS,
@@ -12,6 +11,9 @@ import {
 import { CRISIS_NOTICE, UNLAWFUL_NOTICE, screen } from './practice-safety.js';
 import { avatarSvg, companionLabel, getCompanion } from './companions.js';
 import { MAX_DRILL_ANSWER, drillSituation, getDrill, nextDrill } from './drills.js';
+import { DIMENSIONS, cleanDims, isScenarioReady } from './scenario.js';
+import { BRAND } from './brand.js';
+import { escapeHtml } from './html.js';
 import {
   addRecord,
   createApi,
@@ -32,7 +34,8 @@ const ps = {
   codeOk: false,
   autoTried: false, // 已存過邀請碼時自動確認一次，不用每次重打
   situation: '',
-  setup: null, // { situation, brief }
+  dims: {}, // 點選的情境維度，見 scenario.js
+  setup: null, // { situation, dims, brief }
   messages: [],
   draft: '',
   busy: '', // '' | 'verify' | 'brief' | 'turn' | 'feedback' | 'drill' | 'contribute'
@@ -43,27 +46,24 @@ const ps = {
   pendingRetry: null,
 };
 
-function escapeHtml(text) {
-  return String(text ?? '').replace(/[&<>"']/g, (ch) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
-  ));
-}
-
 const turnsUsed = () => ps.messages.filter((m) => m.role === 'manager').length;
 
-// 從圖鑑頁「帶著這個情境去練練看」進來時，網址會帶 ?situation=，先填進描述框。
-export function situationFromUrl(search) {
-  const text = new URLSearchParams(search).get('situation') ?? '';
-  return [...text.trim()].slice(0, MAX_SITUATION_CHARS).join('');
+// 從圖鑑頁「帶著這個情境去練練看」進來時，網址會帶 ?situation=（與 &companion=），先填好。
+export function scenarioFromUrl(search) {
+  const params = new URLSearchParams(search);
+  const situation = [...(params.get('situation') ?? '').trim()].slice(0, MAX_SITUATION_CHARS).join('');
+  const dims = cleanDims({ companion: params.get('companion') ?? '' }) ?? {};
+  return { situation, dims };
 }
 
 export function initPractice(viewEl, store) {
   view = viewEl;
   storage = store;
   ps.code = loadCode(storage);
-  const fromUrl = situationFromUrl(window.location.search);
-  if (fromUrl) {
-    ps.situation = fromUrl;
+  const fromUrl = scenarioFromUrl(window.location.search);
+  if (fromUrl.situation || Object.keys(fromUrl.dims).length) {
+    ps.situation = fromUrl.situation;
+    ps.dims = fromUrl.dims;
     window.history.replaceState(null, '', window.location.pathname);
   }
 }
@@ -134,8 +134,8 @@ function renderIntro() {
     </form>`;
   }
   view.innerHTML = `
-    <h1>心靈健身房</h1>
-    <p class="sub">下一場難開口的對話，先在這裡練一次。</p>
+    <h1>${escapeHtml(BRAND.name)}</h1>
+    <p class="sub">${escapeHtml(BRAND.tagline)}</p>
     ${noticeHtml()}
     ${body}
     ${recordsLink()}
@@ -143,21 +143,28 @@ function renderIntro() {
     ${PRIVACY}`;
 }
 
+function dimensionHtml(d, busy) {
+  return `<fieldset class="dimension" data-dimension="${d.id}">
+    <legend>${escapeHtml(d.question)}</legend>
+    <div class="examples">
+      ${d.options.map((o) => `<button type="button" class="example" data-act="dim" data-dim="${d.id}" data-option="${o.id}" aria-pressed="${ps.dims[d.id] === o.id}" ${busy ? 'disabled' : ''}>${escapeHtml(o.label)}</button>`).join('')}
+    </div>
+  </fieldset>`;
+}
+
 function renderDescribe() {
   const busy = ps.busy === 'brief';
   const count = charCount(ps.situation);
   view.innerHTML = `
     <h1>這次要談什麼？</h1>
-    <p class="sub">說說你要談的人和事。AI 會先幫你讀懂狀況，再扮演他陪你練。</p>
+    <p class="sub">點幾個選項搭出情境，想到細節再補充。AI 會先幫你讀懂狀況，再扮演對方陪你練。</p>
     ${noticeHtml()}
-    <label class="field" for="pr-situation"><span>你要談的人和事</span>
-      <textarea id="pr-situation" data-field="situation" rows="6" maxlength="${MAX_SITUATION_CHARS}" placeholder="例如：他來一年了，產出一直跟不上，很多事都要我細部交代。我想坦白跟他談接下來怎麼辦。" ${busy ? 'disabled' : ''}>${escapeHtml(ps.situation)}</textarea>
+    <div class="dimensions" id="pr-dimensions">${DIMENSIONS.map((d) => dimensionHtml(d, busy)).join('')}</div>
+    <label class="field" for="pr-situation"><span>想補充的細節（選填，越具體越像）</span>
+      <textarea id="pr-situation" data-field="situation" rows="4" maxlength="${MAX_SITUATION_CHARS}" placeholder="例如：他來一年了，很多事都要我細部交代。上次談完他說會改，但這兩週又一樣。" ${busy ? 'disabled' : ''}>${escapeHtml(ps.situation)}</textarea>
       <span class="counter" data-counter="situation">${count}／${MAX_SITUATION_CHARS}</span></label>
-    <p class="hint">沒想法的話，點一個例子再改成你的狀況：</p>
-    <div class="examples" id="pr-examples">
-      ${EXAMPLES.map((e, i) => `<button type="button" class="example" data-act="example" data-index="${i}" ${busy ? 'disabled' : ''}>${escapeHtml(e.label)}</button>`).join('')}
-    </div>
-    <button type="button" class="btn primary block" data-act="brief" id="pr-brief" ${busy || !ps.situation.trim() ? 'disabled' : ''}>${busy ? '正在讀懂狀況…' : '讀懂狀況'}</button>
+    <button type="button" class="btn primary block" data-act="brief" id="pr-brief" ${busy || !isScenarioReady(ps.dims, ps.situation) ? 'disabled' : ''}>${busy ? '正在讀懂狀況…' : '讀懂狀況'}</button>
+    <p class="hint" id="pr-ready-hint">選了「跟誰談」和「談什麼」，或寫一段描述，就能開始。</p>
     <button type="button" class="drill-entry" data-act="drill" id="pr-drill-entry" ${busy ? 'disabled' : ''}>
       <strong>沒有特定要談的事？</strong><span>來一題 1 分鐘的快速題</span>
     </button>
@@ -435,17 +442,18 @@ async function enter({ silent = false } = {}) {
 
 async function makeBrief() {
   const situation = ps.situation.trim();
-  if (!situation || ps.busy) return;
+  const dims = { ...ps.dims };
+  if (!isScenarioReady(dims, situation) || ps.busy) return;
   const flagged = screen({ situation }, []);
   if (flagged === 'crisis') return stopForCrisis();
   if (flagged === 'unlawful') return showUnlawful();
   ps.busy = 'brief';
   ps.notice = null;
   rerender();
-  const result = await api.brief(ps.code, situation);
+  const result = await api.brief(ps.code, { situation, dims });
   ps.busy = '';
   if (result.ok && result.type === 'brief') {
-    ps.setup = { situation, brief: result.brief };
+    ps.setup = { situation, dims, brief: result.brief };
     return goStep('brief');
   }
   if (result.ok && result.type === 'crisis') return stopForCrisis();
@@ -524,7 +532,7 @@ async function contribute(mode) {
   ps.busy = 'contribute';
   rerender();
   const result = mode === 'preview'
-    ? await api.contributePreview(ps.code, ps.setup.situation)
+    ? await api.contributePreview(ps.code, { situation: ps.setup.situation, dims: ps.setup.dims })
     : await api.contributeSave(ps.code, ps.contribution.scenario, ps.setup.brief.companion, ps.feedback?.companion?.id ?? '');
   ps.busy = '';
   if (result.ok && result.type === 'contribution_preview') ps.contribution = { state: 'preview', scenario: result.scenario };
@@ -557,26 +565,30 @@ async function finish() {
 export function handlePracticeClick(event) {
   const target = event.target.closest('button[data-act]');
   if (!target || target.disabled) return;
-  const { act, id, index } = target.dataset;
+  const { act, id } = target.dataset;
   if (act === 'home') {
     ps.messages = [];
     goStep(ps.codeOk ? 'describe' : 'intro');
   } else if (act === 'records') goStep('records');
-  else if (act === 'example') {
-    ps.situation = EXAMPLES[Number(index)]?.text ?? ps.situation;
-    rerender({ focus: '#pr-situation' });
+  else if (act === 'dim') {
+    const { dim, option } = target.dataset;
+    ps.dims = { ...ps.dims, [dim]: ps.dims[dim] === option ? '' : option };
+    rerender({ focus: `[data-dim="${dim}"][data-option="${option}"]` });
   } else if (act === 'brief') makeBrief();
   else if (act === 'describe') goStep('describe');
   else if (act === 'start' || act === 'retry') start();
   else if (act === 'new') {
     ps.situation = '';
+    ps.dims = {};
     ps.setup = null;
     goStep('describe');
   } else if (act === 'finish') finish();
   else if (act === 'retract') retract();
   else if (act === 'drill' || act === 'drill-next') startDrill();
   else if (act === 'drill-full') {
-    ps.situation = drillSituation(getDrill(ps.drill.id));
+    const drill = getDrill(ps.drill.id);
+    ps.situation = drillSituation(drill);
+    ps.dims = { relation: 'report', companion: drill.companion };
     ps.setup = null;
     goStep('describe');
   } else if (act === 'contribute-preview') contribute('preview');
@@ -589,6 +601,7 @@ export function handlePracticeClick(event) {
     const setup = setupFromRecord(loadRecords(storage).find((r) => r.id === id));
     if (!setup) return;
     ps.situation = setup.situation;
+    ps.dims = { ...setup.dims };
     if (!ps.codeOk) {
       ps.pendingRetry = setup;
       ps.step = 'intro';
@@ -619,7 +632,7 @@ export function handlePracticeInput(event) {
   }
   if (field === 'situation') {
     const next = view.querySelector('#pr-brief');
-    if (next) next.disabled = Boolean(ps.busy) || !ps.situation.trim();
+    if (next) next.disabled = Boolean(ps.busy) || !isScenarioReady(ps.dims, ps.situation);
   }
 }
 

@@ -1,6 +1,6 @@
--- 心靈健身房的累積資訊（Cloudflare D1）。不存使用者原本寫的文字、不存 IP 或任何識別資訊。
+-- 累積資訊（Cloudflare D1）。不存使用者原本寫的文字、不存 IP 或任何識別資訊。
 
--- 每天每種事件的次數。kind：resonate、his_companion、your_companion、drill。
+-- 每天每種事件的次數。kind：resonate、his_companion、your_companion、drill、dim_<維度>（見 public/src/scenario.js）。
 CREATE TABLE IF NOT EXISTS counts (
   day TEXT NOT NULL,
   kind TEXT NOT NULL,

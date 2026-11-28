@@ -64,6 +64,9 @@ test('畫面文案沒有連續天數或懲罰式用語', () => {
     'public/src/companions.js',
     'public/src/companions-page.js',
     'public/src/drills.js',
+    'public/src/scenario.js',
+    'public/src/brand.js',
+    'public/src/html.js',
     'server/store.js',
     'public/src/practice-view.js',
     'public/src/practice-data.js',
@@ -76,5 +79,33 @@ test('畫面文案沒有連續天數或懲罰式用語', () => {
     for (const word of banned) {
       assert.ok(!text.includes(word), `${file} 出現了「${word}」`);
     }
+  }
+});
+
+test('產品名稱只有一個來源：靜態檔與 brand.js 一致', async () => {
+  const { BRAND } = await import('../public/src/brand.js');
+  const html = read('index.html');
+  assert.match(html, new RegExp(`<title>${BRAND.name}</title>`));
+  assert.match(html, new RegExp(`apple-mobile-web-app-title" content="${BRAND.name}"`));
+  const manifest = JSON.parse(read('manifest.webmanifest'));
+  assert.equal(manifest.name, BRAND.name);
+  assert.equal(manifest.short_name, BRAND.name);
+  assert.ok(read('companions.html').includes(BRAND.name));
+  // 程式碼裡不再寫死名稱（brand.js 以外）
+  for (const file of ['src/app.js', 'src/practice-view.js', 'src/practice.js', 'src/practice-safety.js', 'src/companions-page.js']) {
+    assert.ok(!read(file).includes(BRAND.name), `${file} 應該從 brand.js 讀名稱`);
+  }
+});
+
+test('共用小工具只有一份：escapeHtml 只定義在 html.js', () => {
+  for (const file of ['src/practice-view.js', 'src/companions-page.js', 'src/app.js']) {
+    assert.ok(!/function escapeHtml/.test(read(file)), `${file} 應該 import html.js 的 escapeHtml`);
+  }
+});
+
+test('離線快取清單涵蓋所有頁面程式', () => {
+  const list = read('sw.js').match(/const SHELL = \[([\s\S]*?)\]/)[1];
+  for (const name of readdirSync(new URL('src/', root))) {
+    assert.ok(list.includes(`'/src/${name}'`), `sw.js 的 SHELL 缺少 /src/${name}`);
   }
 });

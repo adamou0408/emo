@@ -1,7 +1,8 @@
-// 心靈健身房的前端邏輯：練習紀錄、邀請碼、呼叫後端。不碰 DOM。
-// 練習紀錄只存狀況描述、狀況卡與回饋，不存對話逐字稿，而且只存在這台裝置的瀏覽器。
+// 練習的前端邏輯：練習紀錄、邀請碼、呼叫後端。不碰 DOM。
+// 練習紀錄只存點選的情境、狀況描述、狀況卡與回饋，不存對話逐字稿，而且只存在這台裝置的瀏覽器。
 
 import { BRIEF_FIELDS } from './practice-data.js';
+import { cleanDims, isScenarioReady } from './scenario.js';
 
 export const PRACTICE_KEY = 'emo.practice.v2';
 export const LEGACY_PRACTICE_KEY = 'emo.practice.v1';
@@ -45,6 +46,7 @@ function fromLegacy(r) {
     at: r.at,
     title: LEGACY_TITLES[r.scenarioId] ?? '自己描述的情境',
     situation: typeof r.customScenario === 'string' ? r.customScenario : '',
+    dims: {},
     brief: null,
     feedback: r.feedback,
   };
@@ -67,6 +69,7 @@ export function addRecord(storage, { setup, feedback }, { now = new Date(), rng 
     at,
     title: setup.brief.title,
     situation: setup.situation,
+    dims: { ...(setup.dims ?? {}) },
     brief: { ...setup.brief },
     feedback,
   };
@@ -78,8 +81,11 @@ export function addRecord(storage, { setup, feedback }, { now = new Date(), rng 
 
 // 從紀錄還原練習設定，用來「再練一次」。舊版紀錄沒有狀況卡，回傳 null。
 export function setupFromRecord(record) {
-  if (!record || !isText(record.situation) || !isValidBrief(record.brief)) return null;
-  return { situation: record.situation, brief: { ...record.brief } };
+  if (!record || !isValidBrief(record.brief)) return null;
+  const dims = cleanDims(record.dims) ?? {};
+  const situation = typeof record.situation === 'string' ? record.situation : '';
+  if (!isScenarioReady(dims, situation)) return null;
+  return { situation, dims, brief: { ...record.brief } };
 }
 
 export function loadCode(storage) {
@@ -127,11 +133,11 @@ export function createApi(fetchImpl = (...args) => fetch(...args)) {
   return {
     status: () => request(fetchImpl, 'status', { method: 'GET' }),
     verify: (code) => request(fetchImpl, 'verify', { code }),
-    brief: (code, situation) => request(fetchImpl, 'brief', { code, body: { situation } }),
+    brief: (code, { situation, dims }) => request(fetchImpl, 'brief', { code, body: { situation, dims } }),
     turn: (code, setup, messages) => request(fetchImpl, 'turn', { code, body: { setup, messages } }),
     feedback: (code, setup, messages) => request(fetchImpl, 'feedback', { code, body: { setup, messages } }),
     drill: (code, drillId, answer) => request(fetchImpl, 'drill', { code, body: { drillId, answer } }),
-    contributePreview: (code, situation) => request(fetchImpl, 'contribute', { code, body: { mode: 'preview', situation } }),
+    contributePreview: (code, { situation, dims }) => request(fetchImpl, 'contribute', { code, body: { mode: 'preview', situation, dims } }),
     contributeSave: (code, scenario, hisCompanion, yourCompanion) => request(fetchImpl, 'contribute', {
       code, body: { mode: 'save', scenario, hisCompanion, yourCompanion },
     }),

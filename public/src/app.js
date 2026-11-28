@@ -1,4 +1,4 @@
-// 心靈健身房的進入點：準備儲存空間，把畫面事件轉給練習室模組。
+// 進入點：準備儲存空間，把畫面事件轉給練習模組。
 import {
   handlePracticeClick,
   handlePracticeInput,

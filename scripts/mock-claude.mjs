@@ -76,7 +76,7 @@ export function createMockClient({ calls = [], override } = {}) {
             return textResponse({ signal: 'none', reply: mockReply(last) });
           }
           const transcript = params.messages[0].content;
-          const first = (transcript.match(/主管：(.*)/) ?? [])[1] ?? '';
+          const first = (transcript.match(/你：(.*)/) ?? [])[1] ?? '';
           return textResponse(MOCK_FEEDBACK(first));
         },
       },

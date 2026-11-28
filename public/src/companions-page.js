@@ -1,5 +1,6 @@
 // 情緒小夥伴圖鑑：公開頁面，不需要邀請碼。每張卡都可以直接帶著例子去練習。
 import { COMPANIONS, avatarSvg } from './companions.js';
+import { escapeHtml } from './html.js';
 import { createApi } from './practice.js';
 
 const api = createApi();
@@ -21,14 +22,9 @@ function remember(id) {
   } catch {}
 }
 
-function escapeHtml(text) {
-  return String(text ?? '').replace(/[&<>"']/g, (ch) => (
-    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
-  ));
-}
 
 export function practiceHref(c) {
-  return `/?situation=${encodeURIComponent(c.practice)}`;
+  return `/?situation=${encodeURIComponent(c.practice)}&companion=${c.id}`;
 }
 
 function cardHtml(c) {

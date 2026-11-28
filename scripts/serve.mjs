@@ -69,5 +69,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     practice = (request, action) => handlePractice(request, process.env, action);
   }
   await startServer(PORT, { practice });
-  console.log(`心靈健身房：http://localhost:${PORT}${practice ? '（已接上 Claude）' : ''}`);
+  const { BRAND } = await import('../public/src/brand.js');
+  console.log(`${BRAND.name}：http://localhost:${PORT}${practice ? '（已接上 Claude）' : ''}`);
 }

@@ -9,6 +9,7 @@ import {
   SAFE_REPLY,
   buildBriefRequest,
   buildFeedbackRequest,
+  buildFeedbackSystem,
   buildRoleplaySystem,
   buildTurnRequest,
   checkAccessCode,
@@ -66,8 +67,8 @@ const jsonReply = (obj, extra = {}) => ({ stop_reason: 'end_turn', content: [{ t
 
 // ---------- 提示組裝 ----------
 
-test('狀況卡請求：用主管的描述現場生成，要求固定欄位與安全訊號', () => {
-  const req = buildBriefRequest('他來一年了，產出一直跟不上');
+test('狀況卡請求：用點選的情境與描述現場生成，要求固定欄位與安全訊號', () => {
+  const req = buildBriefRequest({ situation: '他來一年了，產出一直跟不上', dims: { relation: 'report', topic: 'performance' } });
   assert.equal(req.model, 'claude-opus-5-5');
   assert.equal(req.fallbacks, 'default');
   assert.equal(req.output_config.effort, 'medium');
@@ -76,11 +77,35 @@ test('狀況卡請求：用主管的描述現場生成，要求固定欄位與�
   assert.match(req.system[0].text, /小旋（焦慮）/, '提示要用情緒小夥伴的語言');
   assert.match(req.messages[0].content, /他來一年了，產出一直跟不上/);
   const system = req.system[0].text;
-  assert.match(system, /他知道自己的表現不如預期嗎/, '盲點要先檢查根本原因');
+  assert.match(system, /期待或標準有沒有具體說清楚過/, '盲點要先檢查根本原因');
+  assert.match(system, /跟他的部屬談/, '對方的角色來自點選的「跟誰談」');
+  assert.match(req.messages[0].content, /你要跟誰談？我的部屬/);
+  assert.match(req.messages[0].content, /要談什麼？表現與回饋/);
   assert.match(system, /人資/, '去留等議題要提醒先跟人資確認');
   assert.match(system, /不貼標籤/);
   assert.match(system, /"crisis"/);
   assert.match(system, /"unlawful"/);
+});
+
+test('情境維度：只選點選項也能生成；什麼都沒有時不呼叫 AI；不認得的選項被拒絕', async () => {
+  const onlyDims = await call('brief', { situation: '', dims: { relation: 'boss', topic: 'career' } });
+  assert.equal(onlyDims.data.type, 'brief');
+  assert.match(onlyDims.calls[0].system[0].text, /跟他的主管談/);
+  const nothing = await call('brief', { situation: '', dims: { work: 'tech' } });
+  assert.equal(nothing.status, 400);
+  assert.equal(nothing.data.message, MESSAGES.noSituation);
+  assert.equal(nothing.calls.length, 0);
+  const unknown = await call('brief', { situation: '有事', dims: { relation: 'alien' } });
+  assert.equal(unknown.status, 400);
+});
+
+test('對方的角色貫穿角色扮演與回饋：選「我的主管」時 AI 扮演主管', () => {
+  const setup = validateSetup({ ...SETUP, dims: { relation: 'boss', topic: 'career' } });
+  assert.match(buildRoleplaySystem(setup), /扮演使用者的主管/);
+  assert.match(buildRoleplaySystem(setup), /要跟誰談？我的主管/);
+  assert.match(buildFeedbackSystem(setup), /AI 扮演的主管/);
+  const noDims = validateSetup(SETUP);
+  assert.match(buildRoleplaySystem(noDims), /扮演使用者的談話對象/);
 });
 
 test('角色扮演提示包含主管的描述、狀況卡與安全規則', () => {
@@ -163,7 +188,7 @@ test('回饋請求：逐字稿標出主管與部屬，要求固定欄位與風�
   assert.match(req.system[0].text, /risk_note/);
   assert.match(req.system[0].text, /人資確認程序/);
   assert.equal(req.messages.length, 1);
-  assert.match(req.messages[0].content, /主管：我們聊聊進度 1\n部屬：好 1\n主管：我們聊聊進度 2/);
+  assert.match(req.messages[0].content, /你：我們聊聊進度 1\n對方：好 1\n你：我們聊聊進度 2/);
   assert.match(req.system[0].text, /不要替任何人貼標籤/);
   assert.match(req.system[0].text, /該指出問題時直接指出/);
 });
@@ -439,7 +464,7 @@ test('重練掉的那組他看不到，他從重練前的狀態接話；重練�
 test('教練看得到重練掉的嘗試，並被要求對照新舊說法', () => {
   const messages = validateMessages([...withRedo(), { role: 'report', text: '其實規格一直改。' }], 'feedback');
   const req = buildFeedbackRequest(validateSetup(SETUP), messages);
-  assert.match(req.messages[0].content, /〔重練掉〕主管：你到底為什麼又晚了！\n〔重練掉〕部屬：你現在怪我也沒用吧。\n主管：我想先聽聽/);
+  assert.match(req.messages[0].content, /〔重練掉〕你：你到底為什麼又晚了！\n〔重練掉〕對方：你現在怪我也沒用吧。\n你：我想先聽聽/);
   assert.match(req.system[0].text, /〔重練掉〕/);
   assert.match(req.system[0].text, /對照/);
 });

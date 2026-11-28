@@ -7,12 +7,15 @@
 
 import { COMPANION_IDS } from '../public/src/companions.js';
 import { DRILLS } from '../public/src/drills.js';
+import { DIMENSIONS } from '../public/src/scenario.js';
 
 export const COUNT_KINDS = {
   resonate: COMPANION_IDS, // 圖鑑頁「說中我了」
   his_companion: COMPANION_IDS, // 狀況卡標出的「他的小夥伴」
   your_companion: COMPANION_IDS, // 回饋標出的「你的小夥伴」
   drill: DRILLS.map((d) => d.id), // 做完的快速題
+  // 描述頁點選的情境維度，例如 dim_relation、dim_topic；選項直接取自 scenario.js。
+  ...Object.fromEntries(DIMENSIONS.map((d) => [`dim_${d.id}`, d.options.map((o) => o.id)])),
 };
 
 export function hasStore(env = {}) {

@@ -55,7 +55,8 @@ const PORT = 5174;
       delete env.ACCESS_CODE;
       delete env.DB;
       await page.goto(`http://localhost:${PORT}/`);
-      assert.equal(await page.title(), '心靈健身房');
+      const { BRAND } = await import('../public/src/brand.js');
+      assert.equal(await page.title(), BRAND.name);
       assert.equal(await page.locator('nav, .tab, .card').count(), 0, '不應有分頁選單或小夥伴卡片');
       await page.locator('#pr-not-ready').waitFor();
       assert.match(await page.locator('#pr-not-ready').textContent(), /等待設定/);
@@ -74,13 +75,23 @@ const PORT = 5174;
       await page.fill('#pr-code', CODE);
       await page.locator('#pr-enter').tap();
 
-      // 描述狀況：例子一點就填入，可以再改
+      // 點選情境：每個維度點一下；選了跟誰談＋談什麼就能開始，描述選填
       await page.locator('#pr-situation').waitFor();
-      assert.ok(await page.locator('#pr-brief').isDisabled(), '沒寫描述時不能送出');
-      assert.ok(await page.locator('.example').count() >= 8);
-      await page.locator('.example', { hasText: '進度一直延遲' }).tap();
-      assert.match(await page.inputValue('#pr-situation'), /報表已經晚了一週/);
-      await shot('2-describe');
+      assert.equal(await page.locator('.dimension').count(), 5, '五個維度');
+      assert.ok(await page.locator('#pr-brief').isDisabled(), '什麼都沒選、沒寫時不能送出');
+      const pick = (dim, option) => page.locator(`[data-dim="${dim}"][data-option="${option}"]`).tap();
+      await pick('relation', 'report');
+      assert.ok(await page.locator('#pr-brief').isDisabled(), '只選跟誰談還不夠');
+      await pick('topic', 'delivery');
+      assert.ok(!(await page.locator('#pr-brief').isDisabled()), '跟誰談＋談什麼就能開始');
+      await pick('work', 'tech');
+      await pick('work', 'tech');
+      assert.equal(await page.locator('[data-dim="work"][aria-pressed="true"]').count(), 0, '再點一次取消');
+      await pick('work', 'sales');
+      await pick('companion', 'anxiety');
+      await pick('goal', 'agreement');
+      await page.fill('#pr-situation', '他負責的報表已經晚了一週，每次問都說快好了。');
+      await shot('2-describe', true);
       await noOverflow('描述頁');
 
       // 描述裡有違法意圖：不生成，給提醒
@@ -89,7 +100,7 @@ const PORT = 5174;
       await page.locator('#pr-notice.unlawful').waitFor();
       assert.match(await page.locator('#pr-notice').textContent(), /人資或法務/);
 
-      // 現場生成狀況卡
+      // 現場生成狀況卡（點選的情境一起送出）
       await page.fill('#pr-situation', '他負責的報表已經晚了一週，每次問都說快好了。客戶下週五要看。');
       await page.locator('#pr-brief').tap();
       await page.locator('#pr-brief-card').waitFor();
@@ -156,9 +167,10 @@ const PORT = 5174;
       await page.locator('#pr-finish').tap();
       await page.locator('#pr-fb-feelings').waitFor();
 
-      // 練另一件事：回到空白描述
+      // 練另一件事：回到空白描述，點選也清空
       await page.locator('[data-act="new"]').tap();
       assert.equal(await page.inputValue('#pr-situation'), '');
+      assert.equal(await page.locator('.dimension [aria-pressed="true"]').count(), 0);
 
       // 快速題：一句話、看解析、可以轉成完整對練
       await page.locator('#pr-drill-entry').tap();
@@ -173,9 +185,11 @@ const PORT = 5174;
       const drillLine = await page.locator('#pr-drill-line').textContent();
       await page.locator('#pr-drill-full').tap();
       assert.ok((await page.inputValue('#pr-situation')).includes(drillLine), '轉成完整對練時應帶著這題的情境');
+      assert.equal(await page.locator('[data-dim="relation"][data-option="report"]').getAttribute('aria-pressed'), 'true');
       await page.locator('#pr-drill-entry').tap();
       await page.locator('#pr-drill-next').waitFor({ state: 'detached' }).catch(() => {});
       await page.locator('[data-act="home"]').tap();
+      await page.locator('[data-act="new"]').count();
       await page.fill('#pr-situation', '');
 
       // 危機訊號：停止，提供 1925
@@ -217,6 +231,7 @@ const PORT = 5174;
       await page.locator('#anger .practice-link').tap();
       await page.locator('#pr-situation').waitFor();
       assert.match(await page.inputValue('#pr-situation'), /當眾反駁我的安排/, '應帶著小焰的情境進到描述頁');
+      assert.equal(await page.locator('[data-dim="companion"][data-option="anger"]').getAttribute('aria-pressed'), 'true', '應預選小焰');
       assert.equal(new URL(page.url()).search, '', '網址不應留著描述內容');
       await page.locator('#pr-guide').waitFor();
       await ctx.close();

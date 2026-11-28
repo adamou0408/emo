@@ -249,3 +249,9 @@ textarea, .code-form input {
 .drill-line { margin-bottom: 8px; }
 .contribute { border-style: dashed; }
 .resonate { margin-top: 12px; }
+
+/* 點選情境 */
+.dimensions { display: flex; flex-direction: column; gap: 14px; margin-top: 8px; }
+.dimension { border: 0; margin: 0; padding: 0; min-width: 0; }
+.dimension legend { font-weight: 700; margin-bottom: 6px; padding: 0; }
+.example[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
