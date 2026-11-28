@@ -109,3 +109,7 @@ test('離線快取清單涵蓋所有頁面程式', () => {
     assert.ok(list.includes(`'/src/${name}'`), `sw.js 的 SHELL 缺少 /src/${name}`);
   }
 });
+
+test('service worker 每次都回伺服器確認版本，不受網域的瀏覽器快取設定影響', () => {
+  assert.match(read('sw.js'), /fetch\(request, \{ cache: 'no-cache' \}\)/);
+});

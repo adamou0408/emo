@@ -136,6 +136,10 @@ AI 扮演對方陪練 → 教練回饋。受眾是職場的成長情境：對方
 - 禁用字詞測試會掃情境、例子、題目、註解，連「負面回饋」「失敗時」也會擋；改寫成「需要改進的回饋」「寫不進去時」。
 - 確認 Functions 能打包：`npx wrangler pages functions build`；本機用 workerd 跑後端：`wrangler pages dev public --binding ...`。
 - 分支若是在舊版上做的，先跟使用者確認方向再移植，不要直接合併；要讓分支內容等於 `main` 又不強制 push，可用 `git merge -s ours` 再快轉。
+- aixmoment.com 網域在 Cloudflare 有「瀏覽器快取 TTL 4 小時」，會把 `/src/*.js` 的 Cache-Control 改成 max-age=14400
+  （`emo-aixmoment.pages.dev` 不受影響）。所以 `sw.js` 用 `fetch(request, { cache: 'no-cache' })` 每次回伺服器確認版本。
+  上線後使用者說沒看到新版時，先請他重新整理一次（新的 service worker 接手後就正常）；急的話用 pages.dev 網址。
+  根本解法是在 Cloudflare 的 aixmoment.com → 快取 → 設定，把「瀏覽器快取 TTL」改成「遵循現有標頭」（會影響整個網域，要使用者決定）。
 - 語音輸入：用手機鍵盤的聽寫即可，不另做網頁麥克風按鈕（`_headers` 封鎖麥克風，Web Speech 會把聲音送到第三方，違反隱私說明）。
   若要做「整段用說的練」，先跟使用者決定聲音送到哪裡處理。
 

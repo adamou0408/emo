@@ -1,5 +1,5 @@
 // 先走網路、失敗才用快取：上線新版本時使用者馬上拿到，離線時仍可使用。
-const CACHE = 'emo-v6';
+const CACHE = 'emo-v7';
 const SHELL = [
   '/',
   '/index.html',
@@ -40,7 +40,9 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/')) return; // API 一律走網路，不進快取
   event.respondWith(
-    fetch(request)
+    // cache: 'no-cache'：每次都回伺服器確認版本（用 ETag，沒變就很快）。
+    // aixmoment.com 網域的「瀏覽器快取 TTL」會把 JS 的快取時間改成 4 小時，不這樣做，上線後手機最久 4 小時才看得到新版。
+    fetch(request, { cache: 'no-cache' })
       .then((response) => {
         if (response.ok) {
           const copy = response.clone();
