@@ -58,6 +58,11 @@ export const MOCK_FEEDBACK = (firstManagerLine) => ({
   next_step: '下次開場先用一句話描述你看到的事實，接著問一個開放式問題，然後安靜等他回答。',
   risk_note: '',
   companion: { id: 'anger', note: `你的小焰（生氣）在「${firstManagerLine}」這句出現了，它在守護你對準時的承諾；下次先深呼吸，把事實說清楚。` },
+  carry: {
+    opener: '我看到這週的進度比預期晚了兩天，想先聽聽你那邊遇到什麼狀況？',
+    if_he: '規格一直在改，你現在怪我也沒用吧。',
+    you_say: '我不是要怪你，規格改了幾次我也想弄清楚，我們一起看哪一段最卡。',
+  },
 });
 
 export function createMockClient({ calls = [], override } = {}) {

@@ -187,6 +187,19 @@ textarea, .code-form input {
 .record summary { cursor: pointer; font-weight: 700; color: var(--accent); min-height: 32px; }
 .record .fb { border: 0; padding: 8px 0 0; margin-top: 4px; }
 
+/* 帶進真實對話的小抄 */
+.carry .carry-lines p {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--bg);
+  border-left: 4px solid var(--accent);
+  overflow-wrap: anywhere;
+}
+.carry .carry-lines span { display: block; color: var(--ink-soft); font-size: .85rem; font-weight: 700; }
+.carry .btn.block { margin-top: 12px; }
+.record .carry { margin-top: 8px; }
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }

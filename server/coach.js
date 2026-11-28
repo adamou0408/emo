@@ -281,6 +281,10 @@ ${setupText(setup)}
 - companion.id：這段對話裡，使用者自己身上最明顯的情緒小夥伴，從下面挑一個 id。
 - companion.note：1 到 2 句，指出它在哪一句話出現、它想保護什麼，以及下次怎麼照顧它，例如「你的小焰（生氣）在『……』這句出現了，它在守護……」。
 - risk_note：如果使用者的說法可能被理解成要對方離職、調職、懲處，或涉及加班、請假、性別、懷孕等法規敏感的事，用 1 到 2 句提醒實際談之前先跟人資確認程序，並說明哪句話可能被這樣理解。沒有就填空字串。
+- carry.opener：依這次練習調整過、真的去談時可以直接說的第一句。要有具體事實、不貼標籤，用使用者自己的語氣，最多 60 字。涉及去留、調職、懲處、調薪時，不要替使用者宣布決定，先說要談什麼、想聽${them}的看法，內容要跟 risk_note 一致。
+- carry.if_he：這次對練裡${them}最可能在真實對話中再出現的一種反應。引用或濃縮${them}實際說過的話，最多 40 字，不要寫通則。
+- carry.you_say：${them}那樣說時，使用者可以接的一句話，最多 60 字，是能直接說出口的話。
+- carry 是讓使用者帶得走的提醒，不是要他背的稿子，不要寫「一定要這樣說」。
 
 ## 情緒小夥伴（每個情緒都帶著一個訊息，都有它想保護的東西）
 ${companionsForPrompt()}
@@ -402,8 +406,14 @@ export const FEEDBACK_SCHEMA = {
       required: ['id', 'note'],
       additionalProperties: false,
     },
+    carry: {
+      type: 'object',
+      properties: { opener: { type: 'string' }, if_he: { type: 'string' }, you_say: { type: 'string' } },
+      required: ['opener', 'if_he', 'you_say'],
+      additionalProperties: false,
+    },
   },
-  required: ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step', 'risk_note', 'companion'],
+  required: ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step', 'risk_note', 'companion', 'carry'],
   additionalProperties: false,
 };
 
@@ -597,6 +607,13 @@ export function groundQuote(original, managerTexts = []) {
   return best.ratio >= 0.85 ? best.line : '';
 }
 
+// 帶進真實對話的小抄：三句都有才顯示，缺一句就整張省略，不影響其他回饋。
+function carryFrom(carry) {
+  const line = (v) => truncate(typeof v === 'string' ? v : '', 120);
+  const result = { opener: line(carry?.opener), ifHe: line(carry?.if_he), youSay: line(carry?.you_say) };
+  return result.opener && result.ifHe && result.youSay ? result : null;
+}
+
 export function parseFeedback(response, { messages = [] } = {}) {
   const data = responseJson(response);
   const managerTexts = messages.filter((m) => m.role === 'manager').map((m) => m.text);
@@ -615,6 +632,7 @@ export function parseFeedback(response, { messages = [] } = {}) {
     companion: COMPANION_IDS.includes(data?.companion?.id) && str(data?.companion?.note)
       ? { id: data.companion.id, note: str(data.companion.note) }
       : null,
+    carry: carryFrom(data?.carry),
   };
   const complete = feedback.feelings.intent && feedback.feelings.impact
     && feedback.strengths.length === 2 && feedback.adjustments.length === 2

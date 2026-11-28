@@ -33,6 +33,7 @@ const PORT = 5174;
         locale: 'zh-TW',
         colorScheme: scheme,
       });
+      await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: `http://localhost:${PORT}` });
       const page = await ctx.newPage();
       page.on('pageerror', (e) => errors.push(`${scheme}: ${e}`));
       // 故意輸入錯的邀請碼時，瀏覽器會記一筆 401，這是預期的。
@@ -151,6 +152,16 @@ const PORT = 5174;
       await noOverflow('回饋頁');
       await shot('5-feedback', true);
 
+      // 帶進真實對話的小抄：三句話，可以複製
+      await page.locator('#pr-fb-carry').waitFor();
+      assert.equal(await page.locator('#pr-fb-carry [data-carry]').count(), 3);
+      assert.match(await page.locator('#pr-fb-carry [data-carry]').first().textContent(), /晚了兩天/);
+      await page.locator('#pr-fb-carry').scrollIntoViewIfNeeded();
+      await shot('5b-carry');
+      await noOverflow('小抄');
+      await page.locator('#pr-fb-carry [data-act="copy-carry"]').tap();
+      await page.waitForFunction(() => /已複製|已選取/.test(document.querySelector('#pr-fb-carry [data-act="copy-carry"]').textContent));
+
       // 匿名貢獻給題庫：先看改寫版，確認後才存
       await page.locator('#pr-contribute-preview').tap();
       await page.locator('#pr-contribute-text').waitFor();
@@ -208,11 +219,28 @@ const PORT = 5174;
       await page.locator('#pr-situation').waitFor();
       await page.locator('[data-act="records"]').tap();
       assert.equal(await page.locator('.record').count(), 2, '應有 2 筆練習紀錄');
+      assert.ok(await page.locator('.record .carry').first().isVisible(), '小抄在展開回饋之前就看得到');
+      assert.equal(await page.locator('.record details .carry').count(), 0, '同一張小抄不重複出現');
       await page.locator('.record details summary').first().tap();
       await shot('8-records');
       await noOverflow('練習紀錄');
       const stored = await page.evaluate(() => localStorage.getItem('emo.practice.v2'));
       assert.ok(!stored.includes('我想聽聽你覺得卡在哪裡') && !stored.includes('第 12 句'), '不應存逐字稿');
+
+      // 沒有小抄的舊紀錄照常顯示
+      await page.evaluate(() => {
+        const records = JSON.parse(localStorage.getItem('emo.practice.v2'));
+        const { carry, ...oldFeedback } = records[0].feedback;
+        records.push({ ...records[0], id: 'old-no-carry', at: '2026-01-01T00:00:00.000Z', title: '沒有小抄的舊紀錄', feedback: oldFeedback });
+        localStorage.setItem('emo.practice.v2', JSON.stringify(records));
+      });
+      await page.locator('[data-act="home"]').tap();
+      await page.locator('[data-act="records"]').tap();
+      assert.equal(await page.locator('.record').count(), 3);
+      const oldRecord = page.locator('.record').filter({ hasText: '沒有小抄的舊紀錄' });
+      assert.equal(await oldRecord.locator('.carry').count(), 0);
+      await oldRecord.locator('details summary').tap();
+      assert.ok(await oldRecord.locator('[data-act="retry-record"]').isVisible());
 
       // 從紀錄再練一次：不用重新生成狀況卡
       await page.locator('[data-act="retry-record"]').first().tap();

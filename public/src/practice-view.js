@@ -255,9 +255,22 @@ function listHtml(items) {
   return `<ul>${items.map((t) => `<li>${escapeHtml(t)}</li>`).join('')}</ul>`;
 }
 
-function feedbackHtml(fb) {
+// 帶進真實對話的小抄：談之前 30 秒能看一眼的三句話。
+function carryHtml(carry, { withId = true } = {}) {
+  if (!carry) return '';
+  const line = (label, text) => `<p data-carry><span>${label}</span>${escapeHtml(text)}</p>`;
+  return `<section class="fb carry" ${withId ? 'id="pr-fb-carry"' : ''}>
+      <h2>帶進真實對話</h2>
+      <p class="hint">談之前看一眼就好，用你自己的話說。</p>
+      <div class="carry-lines">${line('開場可以說', carry.opener)}${line('如果他說', carry.ifHe)}${line('你可以接', carry.youSay)}</div>
+      <button type="button" class="btn ghost block" data-act="copy-carry">複製這三句</button>
+    </section>`;
+}
+
+function feedbackHtml(fb, { carry = true } = {}) {
   return `
     ${fb.riskNote ? `<section class="fb risk" id="pr-fb-risk"><h2>實際談之前先確認</h2><p>${escapeHtml(fb.riskNote)}</p></section>` : ''}
+    ${carry && fb.carry ? carryHtml(fb.carry) : ''}
     <section class="fb" id="pr-fb-feelings">
       <h2>他當下可能的感受</h2>
       <div class="fb-two">
@@ -351,7 +364,8 @@ function renderRecords() {
     <time datetime="${escapeHtml(r.at)}">${dateFormat.format(new Date(r.at))}</time>
     <p class="record-title">${escapeHtml(r.title)}</p>
     ${r.situation ? `<p class="hint">${escapeHtml(r.situation)}</p>` : ''}
-    <details><summary>看回饋</summary>${feedbackHtml(r.feedback)}</details>
+    ${carryHtml(r.feedback.carry, { withId: false })}
+    <details><summary>看回饋</summary>${feedbackHtml(r.feedback, { carry: false })}</details>
     ${setupFromRecord(r) ? `<button type="button" class="btn ghost" data-act="retry-record" data-id="${escapeHtml(r.id)}">用這個狀況再練一次</button>` : ''}
   </article>`).join('');
   view.innerHTML = `
@@ -562,6 +576,25 @@ async function finish() {
   rerender({ scroll: true });
 }
 
+// 複製小抄：不重畫、不送任何計數。不支援剪貼簿時改成選取文字，讓使用者自己長按複製。
+async function copyCarry(button) {
+  const card = button.closest('.carry');
+  if (!card) return;
+  const text = [...card.querySelectorAll('[data-carry]')].map((p) => {
+    const label = p.querySelector('span')?.textContent ?? '';
+    return `${label}：${p.textContent.slice(label.length)}`;
+  }).join('\n');
+  try {
+    if (!navigator.clipboard?.writeText) throw new Error('no clipboard');
+    await navigator.clipboard.writeText(text);
+    button.textContent = '已複製';
+  } catch {
+    const lines = card.querySelector('.carry-lines');
+    if (lines) window.getSelection()?.selectAllChildren(lines);
+    button.textContent = '已選取，長按就能複製';
+  }
+}
+
 export function handlePracticeClick(event) {
   const target = event.target.closest('button[data-act]');
   if (!target || target.disabled) return;
@@ -584,6 +617,7 @@ export function handlePracticeClick(event) {
     goStep('describe');
   } else if (act === 'finish') finish();
   else if (act === 'retract') retract();
+  else if (act === 'copy-carry') copyCarry(target);
   else if (act === 'drill' || act === 'drill-next') startDrill();
   else if (act === 'drill-full') {
     const drill = getDrill(ps.drill.id);

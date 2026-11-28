@@ -184,7 +184,8 @@ test('回饋請求：逐字稿標出主管與部屬，要求固定欄位與風�
   const req = buildFeedbackRequest(validateSetup(SETUP), messages);
   assert.equal(req.output_config.effort, 'high');
   assert.equal(req.fallbacks, 'default');
-  assert.deepEqual(req.output_config.format.schema.required, ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step', 'risk_note', 'companion']);
+  assert.deepEqual(req.output_config.format.schema.required, ['feelings', 'strengths', 'adjustments', 'rewrite', 'next_step', 'risk_note', 'companion', 'carry']);
+  assert.deepEqual(req.output_config.format.schema.properties.carry.required, ['opener', 'if_he', 'you_say']);
   assert.match(req.system[0].text, /companion\.note/);
   assert.ok(req.system[0].text.includes(SETUP.situation));
   assert.match(req.system[0].text, /risk_note/);
@@ -312,7 +313,7 @@ test('回饋解析：五個固定欄位，多的點數只取前 2 點', () => {
   const raw = MOCK_FEEDBACK('你為什麼又晚了');
   raw.strengths.push('第三點');
   const fb = parseFeedback(jsonReply(raw));
-  assert.deepEqual(Object.keys(fb), ['feelings', 'strengths', 'adjustments', 'rewrite', 'nextStep', 'riskNote', 'companion']);
+  assert.deepEqual(Object.keys(fb), ['feelings', 'strengths', 'adjustments', 'rewrite', 'nextStep', 'riskNote', 'companion', 'carry']);
   assert.equal(fb.companion.id, 'anger');
   assert.match(fb.companion.note, /小焰/);
   assert.equal(parseFeedback(jsonReply({ ...raw, companion: { id: 'nobody', note: 'x' } })).companion, null, '小夥伴不對時省略，不影響其他回饋');
@@ -545,4 +546,40 @@ test('狀況卡提示：分清事實和推想，依想要的結果寫盲點，�
   assert.match(system, /哪些可以商量、哪些不行/);
   assert.match(system, /不要替使用者下「你想太多」或「你沒想太多」的結論/);
   assert.doesNotMatch(system, /'accept'|"accept"/, '提示不寫死選項 id');
+});
+
+// ---------- 帶進真實對話的小抄 ----------
+
+test('小抄：解析出開場、他可能怎麼說、你可以怎麼接', () => {
+  const fb = parseFeedback(jsonReply(MOCK_FEEDBACK('你為什麼又晚了')));
+  const { carry } = MOCK_FEEDBACK('x');
+  assert.deepEqual(fb.carry, { opener: carry.opener, ifHe: carry.if_he, youSay: carry.you_say });
+});
+
+test('小抄：任何一句是空的就整張省略，其他回饋照常', () => {
+  for (const key of ['opener', 'if_he', 'you_say']) {
+    const raw = MOCK_FEEDBACK('x');
+    raw.carry = { ...raw.carry, [key]: '  ' };
+    const fb = parseFeedback(jsonReply(raw));
+    assert.equal(fb.carry, null, key);
+    assert.ok(fb.rewrite.better && fb.nextStep);
+  }
+  const { carry, ...noCarry } = MOCK_FEEDBACK('x');
+  assert.equal(parseFeedback(jsonReply(noCarry)).carry, null);
+});
+
+test('小抄：太長的句子截在 120 字以內', () => {
+  const raw = MOCK_FEEDBACK('x');
+  raw.carry = { opener: '開'.repeat(300), if_he: '他'.repeat(121), you_say: '接' };
+  const fb = parseFeedback(jsonReply(raw));
+  assert.equal([...fb.carry.opener].length, 120);
+  assert.equal([...fb.carry.ifHe].length, 120);
+  assert.equal(fb.carry.youSay, '接');
+});
+
+test('小抄提示：不替使用者宣布決定，是提醒不是稿子', () => {
+  const system = buildFeedbackSystem(validateSetup(SETUP));
+  assert.match(system, /carry\.opener/);
+  assert.match(system, /不要替使用者宣布決定/);
+  assert.match(system, /不是要他背的稿子/);
 });

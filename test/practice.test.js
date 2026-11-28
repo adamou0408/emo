@@ -82,6 +82,13 @@ test('練習紀錄只存狀況、狀況卡與回饋，不存逐字稿；重新�
   assert.equal(records[0].situation, '他開會常打斷人');
 });
 
+test('練習紀錄保留整份回饋，包括帶進真實對話的小抄', () => {
+  const storage = fakeStorage();
+  const feedback = { ...MOCK_FEEDBACK('a'), carry: { opener: '開場', ifHe: '他說', youSay: '你接' } };
+  addRecord(storage, { setup: SETUP, feedback });
+  assert.deepEqual(loadRecords(storage)[0].feedback.carry, { opener: '開場', ifHe: '他說', youSay: '你接' });
+});
+
 test('再練一次：從紀錄還原狀況與狀況卡，不用重新生成', () => {
   const storage = fakeStorage();
   const record = addRecord(storage, { setup: SETUP, feedback: MOCK_FEEDBACK('a') });
