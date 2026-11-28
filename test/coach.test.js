@@ -681,3 +681,15 @@ test('重點只送到回饋：對練回合就算帶了 focus，角色扮演也�
   assert.ok(!sent.includes(FOCUS));
   assert.ok(!sent.includes('刻意練'));
 });
+
+test('引用連逐字稿前綴一起抄進來時，仍然對得上原句', () => {
+  assert.equal(groundQuote('你：我們聊聊進度', ['我們聊聊進度']), '我們聊聊進度');
+  assert.equal(groundQuote('〔重練掉〕你：你到底為什麼又晚了！', ['你到底為什麼又晚了！']), '你到底為什麼又晚了！');
+});
+
+test('狀況卡提示裡的「想要的結果」選項文字來自 scenario.js，不寫死', async () => {
+  const { getOption } = await import('../public/src/scenario.js');
+  const system = buildBriefSystem({});
+  assert.ok(system.includes(getOption('goal', 'accept').label));
+  assert.ok(system.includes(getOption('goal', 'reason').label));
+});

@@ -8,14 +8,16 @@ import Anthropic from '@anthropic-ai/sdk';
 import {
   BRIEF_FIELDS,
   MAX_BRIEF_CHARS,
+  MAX_CARRY_CHARS,
   MAX_CHARS,
+  MAX_SHORT_LINE_CHARS,
   MAX_SITUATION_CHARS,
   MAX_TURNS,
   charCount,
 } from '../public/src/practice-data.js';
 import { COMPANION_IDS, companionLabel, companionsForPrompt, getCompanion } from '../public/src/companions.js';
 import { MAX_DRILL_ANSWER, getDrill } from '../public/src/drills.js';
-import { cleanDims, counterpartRole, dimsLines, isScenarioReady } from '../public/src/scenario.js';
+import { cleanDims, counterpartRole, dimsLines, getDimension, getOption, isScenarioReady } from '../public/src/scenario.js';
 import { hasStore, isValidCount, recordCount, saveContribution } from './store.js';
 import {
   CRISIS_NOTICE,
@@ -199,7 +201,7 @@ export function buildBriefSystem(dims = {}) {
 - blind_spot：你可能沒注意到的一件事。只寫最重要的一件，1 到 2 句。依序檢查：
   一、使用者的描述有沒有把推測當成事實（例如「他一定是針對我」）？有的話就寫這一點：說清楚哪部分是事實、哪部分是解讀，以及可以怎麼開口確認。
   二、沒有的話，再檢查根本原因，例如：期待或標準有沒有具體說清楚過？對方知道你在意的是什麼嗎？你自己的時間壓力是否讓話變急？
-  三、使用者點選了「你希望談完之後……」（想要的結果）時，blind_spot 要寫在這個目標下最容易卡住的地方。例如選了「他接受一個決定」，就提醒先想清楚哪些可以商量、哪些不行；選了「他說出真正的原因」，就提醒少下結論、多留空間讓他說。
+  三、使用者點選了「${getDimension('goal').question}」（想要的結果）時，blind_spot 要寫在這個目標下最容易卡住的地方。例如選了「${getOption('goal', 'accept').label}」，就提醒先想清楚哪些可以商量、哪些不行；選了「${getOption('goal', 'reason').label}」，就提醒少下結論、多留空間讓他說。
 - risk：如果這段對話涉及去留、調職、懲處、調薪、加班、請假、性別或懷孕等，用 1 到 2 句提醒開口前要先跟人資確認的程序或法規（例如勞動基準法對資遣的要求）。沒有這類風險就填空字串。
 - opening：對話開始時他的樣子，用括號寫一個動作或表情，可以接一句他的開場話，最多 40 字。
 - companion：他現在身上最明顯的情緒小夥伴，從下面挑一個 id；使用者已經點選的話就用那一位。state 裡可以用這位小夥伴的名字說明他在保護什麼，例如「他的小旋（焦慮）正在擔心……」。
@@ -534,7 +536,7 @@ export function parseBrief(response) {
     state: str(data.state),
     blindSpot: str(data.blind_spot),
     risk: str(data.risk),
-    opening: str(data.opening, 120),
+    opening: str(data.opening, MAX_SHORT_LINE_CHARS),
     companion: COMPANION_IDS.includes(data.companion) ? data.companion : '',
   };
   if (!brief.title || !brief.person || !brief.opening) throw new UpstreamError('upstream', MESSAGES.upstream);
@@ -549,7 +551,7 @@ export function parseDrill(response) {
   if (signal !== 'none') return { signal };
   const str = (v, max = MAX_BRIEF_CHARS) => truncate(typeof v === 'string' ? v : '', max);
   const result = {
-    reaction: str(data.reaction, 120),
+    reaction: str(data.reaction, MAX_SHORT_LINE_CHARS),
     hisNeed: str(data.his_need),
     effect: str(data.effect),
     better: str(data.better),
@@ -584,7 +586,8 @@ function nonEmptyStrings(list) {
 }
 
 // 引用要對得上逐字稿：比對時去掉空白、標點與符號。
-const normalizeQuote = (s) => String(s ?? '').replace(/[\s\p{P}\p{S}]/gu, '');
+// 模型有時會連逐字稿的前綴（「〔重練掉〕」「你：」）一起抄進引用，比對前先去掉。
+const normalizeQuote = (s) => String(s ?? '').trim().replace(/^(〔重練掉〕)?(你|對方)[：:]/u, '').replace(/[\s\p{P}\p{S}]/gu, '');
 
 function lcsLength(a, b) {
   const x = [...a];
@@ -633,7 +636,7 @@ export function quotesGrounded(text, sources = []) {
 // 帶進真實對話的小抄：三句都有才顯示，缺一句就整張省略，不影響其他回饋。
 // 「如果他說」可以濃縮；但用了「」就要是他真的說過的話，對不上時拿掉引號，只當濃縮。
 function carryFrom(carry, reportTexts = []) {
-  const line = (v) => truncate(typeof v === 'string' ? v : '', 120);
+  const line = (v) => truncate(typeof v === 'string' ? v : '', MAX_CARRY_CHARS);
   let ifHe = line(carry?.if_he);
   if (reportTexts.length && !quotesGrounded(ifHe, reportTexts)) ifHe = ifHe.replace(/[「」]/gu, '');
   const result = { opener: line(carry?.opener), ifHe, youSay: line(carry?.you_say) };
