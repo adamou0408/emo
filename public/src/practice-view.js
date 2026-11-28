@@ -269,7 +269,7 @@ function feedbackHtml(fb) {
     <section class="fb" id="pr-fb-adjust"><h2>可以調整的 2 點</h2>${listHtml(fb.adjustments)}</section>
     <section class="fb" id="pr-fb-rewrite">
       <h2>換個說法</h2>
-      <p class="quote before"><span>你說的</span>${escapeHtml(fb.rewrite.original)}</p>
+      ${fb.rewrite.original ? `<p class="quote before"><span>你說的</span>${escapeHtml(fb.rewrite.original)}</p>` : ''}
       <p class="quote after"><span>可以這樣說</span>${escapeHtml(fb.rewrite.better)}</p>
       ${fb.rewrite.why ? `<p class="hint">${escapeHtml(fb.rewrite.why)}</p>` : ''}
     </section>
@@ -316,7 +316,7 @@ function contributionHtml() {
   if (!c) {
     return `<section class="fb contribute" id="pr-contribute">
       <h2>匿名貢獻給題庫</h2>
-      <p>願意的話，把這次的情境匿名分享出來，變成別的主管也能練的題目。AI 會先去掉人名、公司等細節，你確認後才會送出。</p>
+      <p>願意的話，把這次的情境匿名分享出來，變成別人也能練的題目。AI 會先去掉人名、公司等細節，你確認後才會送出。</p>
       <button type="button" class="btn ghost block" data-act="contribute-preview" id="pr-contribute-preview" ${busy ? 'disabled' : ''}>${busy ? '正在改寫…' : '看看改寫後的樣子'}</button>
     </section>`;
   }
@@ -536,7 +536,7 @@ async function contribute(mode) {
     : await api.contributeSave(ps.code, ps.contribution.scenario, ps.setup.brief.companion, ps.feedback?.companion?.id ?? '');
   ps.busy = '';
   if (result.ok && result.type === 'contribution_preview') ps.contribution = { state: 'preview', scenario: result.scenario };
-  else if (result.ok && result.type === 'contribution_saved') ps.contribution = { state: 'saved', message: '謝謝你！這個情境會被整理進題庫，幫助更多主管練習。' };
+  else if (result.ok && result.type === 'contribution_saved') ps.contribution = { state: 'saved', message: '謝謝你！這個情境會被整理進題庫，幫助更多人練習。' };
   else if (result.ok && result.type === 'contribution_rejected') ps.contribution = { state: 'rejected', message: result.message };
   else ps.contribution = { state: 'rejected', message: result.message ?? '這次沒有送出，請稍後再試。' };
   rerender();

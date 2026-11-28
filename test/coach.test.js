@@ -8,12 +8,14 @@ import {
   MODEL,
   SAFE_REPLY,
   buildBriefRequest,
+  buildBriefSystem,
   buildFeedbackRequest,
   buildFeedbackSystem,
   buildRoleplaySystem,
   buildTurnRequest,
   checkAccessCode,
   checkConfig,
+  groundQuote,
   handlePractice,
   parseBrief,
   parseFeedback,
@@ -476,4 +478,71 @@ test('重練一定成對；重練掉的句子也受回合上限限制', () => {
   assert.throws(() => validateMessages([{ role: 'manager', text: 'a', retracted: true }], 'turn'), { code: 'bad_request' });
   const many = conversation(MAX_TURNS + 1).map((m, i, all) => (i < all.length - 1 ? { ...m, retracted: true } : m));
   assert.throws(() => validateMessages(many, 'turn'), { code: 'too_many_turns' });
+});
+
+// ---------- 回饋有根據：引用對得上原話 ----------
+
+test('groundQuote：完全吻合原樣回傳；只差標點空白時用逐字稿原文；捏造的回傳空字串', () => {
+  const lines = ['你到底為什麼又晚了！', '我想聽聽你覺得卡在哪裡，這陣子辛苦了。'];
+  assert.equal(groundQuote('你到底為什麼又晚了！', lines), '你到底為什麼又晚了！');
+  assert.equal(groundQuote('卡在哪裡', lines), '卡在哪裡', '只引一段也算');
+  assert.equal(groundQuote('你到底 為什麼又晚了', lines), '你到底為什麼又晚了！', '只差標點或空白時用原文');
+  assert.equal(groundQuote('我想聽聽你覺得卡在哪裏，這陣子辛苦了', lines), lines[1], '只差一個字時用原文');
+  assert.equal(groundQuote('我沒說過的話', lines), '');
+  assert.equal(groundQuote('我們下週一起把規格定下來吧', lines), '');
+  assert.equal(groundQuote('！？', lines), '', '只有標點時沒有可引用的內容');
+  assert.equal(groundQuote('任何一句', []), '任何一句', '沒有逐字稿可比對時原樣回傳');
+});
+
+test('groundQuote：重練掉的句子也算使用者說過的話', () => {
+  const messages = validateMessages([...withRedo(), { role: 'report', text: '其實規格一直改。' }], 'feedback');
+  const texts = messages.filter((m) => m.role === 'manager').map((m) => m.text);
+  assert.equal(groundQuote('你到底為什麼又晚了！', texts), '你到底為什麼又晚了！');
+});
+
+test('回饋解析：原句對不上逐字稿時不顯示原句，其他欄位照樣成功', () => {
+  const messages = validateMessages(conversation(2, '我想聽聽你的想法'), 'feedback');
+  const fb = parseFeedback(jsonReply(MOCK_FEEDBACK('我沒說過的話')), { messages });
+  assert.equal(fb.rewrite.original, '');
+  assert.ok(fb.rewrite.better && fb.rewrite.why && fb.nextStep);
+  assert.equal(fb.strengths.length, 2);
+  assert.equal(fb.adjustments.length, 2);
+  assert.ok(fb.feelings.intent && fb.feelings.impact);
+});
+
+test('回饋解析：只有一回合的逐字稿也能解析', () => {
+  const messages = validateMessages(conversation(1, '你到底為什麼又晚了'), 'feedback');
+  const fb = parseFeedback(jsonReply(MOCK_FEEDBACK('你到底為什麼又晚了 1')), { messages });
+  assert.equal(fb.rewrite.original, '你到底為什麼又晚了 1');
+});
+
+test('回饋端點：原句由逐字稿把關，重練掉的句子也能被引用', async () => {
+  const result = await call('feedback', { setup: SETUP, messages: [...withRedo(), { role: 'report', text: '其實規格一直改。' }] });
+  assert.equal(result.data.type, 'feedback');
+  assert.equal(result.data.feedback.rewrite.original, '你到底為什麼又晚了！');
+  const made = await call('feedback', { setup: SETUP, messages: conversation(1) }, {
+    override: () => jsonReply(MOCK_FEEDBACK('完全沒出現的句子')),
+  });
+  assert.equal(made.status, 200);
+  assert.equal(made.data.feedback.rewrite.original, '');
+});
+
+test('回饋提示：每一點都引用原話，不寫沒有根據的稱讚', () => {
+  const system = buildFeedbackSystem(validateSetup(SETUP));
+  assert.match(system, /先用「」引用使用者說過的一句話/);
+  assert.match(system, /不寫沒有根據的稱讚/);
+  assert.match(system, /句子還太少/);
+  assert.match(system, /逐字複製，不改字、不補標點/);
+  assert.match(system, /不要求挑毛病/);
+});
+
+test('狀況卡提示：分清事實和推想，依想要的結果寫盲點，不替使用者下結論', () => {
+  const system = buildBriefSystem({ goal: 'accept' });
+  assert.match(system, /你提到他/);
+  assert.match(system, /「可能」「也許」/);
+  assert.match(system, /把推測當成事實/);
+  assert.match(system, /想要的結果）時，blind_spot 要寫在這個目標下最容易卡住的地方/);
+  assert.match(system, /哪些可以商量、哪些不行/);
+  assert.match(system, /不要替使用者下「你想太多」或「你沒想太多」的結論/);
+  assert.doesNotMatch(system, /'accept'|"accept"/, '提示不寫死選項 id');
 });

@@ -144,6 +144,9 @@ const PORT = 5174;
       }
       assert.equal(await page.locator('#pr-fb-strengths li').count(), 2);
       assert.match(await page.locator('#pr-fb-rewrite').textContent(), /你到底為什麼又晚了/);
+      // 「你說的」一定是真的說過的話（後端用逐字稿把關）
+      assert.equal(await page.locator('#pr-fb-rewrite .quote.before').count(), 1);
+      assert.match(await page.locator('#pr-fb-rewrite .quote.before').textContent(), /你到底為什麼又晚了/);
       assert.match(await page.locator('#pr-fb-companion').textContent(), /你的小焰（生氣）/);
       await noOverflow('回饋頁');
       await shot('5-feedback', true);
