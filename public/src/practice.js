@@ -34,10 +34,17 @@ export function isValidBrief(brief) {
     && BRIEF_FIELDS.every((f) => typeof brief[f.id] === 'string'));
 }
 
+// 「下次可以試」帶到這次練時，就是「這次刻意練」：去掉開頭的「下次」，免得時間點打架。
+export function cleanFocus(text) {
+  if (typeof text !== 'string') return '';
+  const trimmed = text.trim();
+  const stripped = trimmed.replace(/^下一?次(開口時|談的時候|可以)?[，,、：:\s]*/u, '').trim();
+  return [...(stripped || trimmed)].slice(0, MAX_BRIEF_CHARS).join('');
+}
+
 // 「再練一次」帶著上次「下次可以試」的那一點（只帶這一句，不帶整份回饋）。
 export function focusFromFeedback(fb) {
-  if (typeof fb?.nextStep !== 'string') return '';
-  return [...fb.nextStep.trim()].slice(0, MAX_BRIEF_CHARS).join('');
+  return cleanFocus(fb?.nextStep);
 }
 
 function isValidRecord(r) {
@@ -66,7 +73,7 @@ export function loadRecords(storage) {
     ...(Array.isArray(legacy) ? legacy.map(fromLegacy) : []),
   ];
   return all.filter(isValidRecord)
-    .map((r) => ({ ...r, focus: typeof r.focus === 'string' ? r.focus : '' }))
+    .map((r) => ({ ...r, focus: cleanFocus(r.focus) }))
     .sort((a, b) => b.at.localeCompare(a.at));
 }
 

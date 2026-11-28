@@ -13,7 +13,9 @@ const PORT = 5174;
   const { startServer } = await import('./serve.mjs');
   const { handlePractice } = await import('../server/coach.js');
   const { createMockClient, MOCK_FEEDBACK, MOCK_BRIEF } = await import('./mock-claude.mjs');
-  const MOCK_NEXT_STEP = MOCK_FEEDBACK('').next_step;
+  const { focusFromFeedback } = await import('../public/src/practice.js');
+  // 這次刻意練的那一點：上次的「下次可以試」去掉開頭的「下次」。
+  const MOCK_FOCUS = focusFromFeedback({ nextStep: MOCK_FEEDBACK('').next_step });
   const { createMockD1 } = await import('./mock-d1.mjs');
   const CODE = 'smoke-code';
   const env = {};
@@ -194,7 +196,9 @@ const PORT = 5174;
       assert.equal(await page.locator('.msg').count(), 0);
       assert.match(await page.locator('.chat-title').textContent(), /進度延遲/);
       await page.locator('#pr-focus').waitFor();
-      assert.ok((await page.locator('#pr-focus').textContent()).includes(MOCK_NEXT_STEP), '對練畫面列出這次刻意練的那一點');
+      const focusBody = () => page.locator('#pr-focus').evaluate((el) => el.textContent.slice(el.querySelector('span').textContent.length).trim());
+      assert.equal(await focusBody(), MOCK_FOCUS, '對練畫面列出這次刻意練的那一點');
+      assert.ok(!(await focusBody()).startsWith('下次'), '「這次刻意練」的內文不以「下次」開頭');
       assert.equal(await page.locator('#pr-brief-peek').evaluate((el) => el.open), false, '再練一次時狀況卡回到收合');
       await shot('6-focus-chat');
       await noOverflow('刻意練的重點');
@@ -204,8 +208,10 @@ const PORT = 5174;
       await page.locator('#pr-finish').tap();
       await page.locator('#pr-fb-feelings').waitFor();
       await page.locator('#pr-fb-focus').waitFor();
-      assert.match(await page.locator('#pr-fb-focus').textContent(), /我想聽聽你覺得卡在哪裡/);
-      assert.ok((await page.locator('#pr-fb-focus').textContent()).includes(MOCK_NEXT_STEP));
+      // 引用的是這次真的說過的話（後端用逐字稿把關）
+      assert.match(await page.locator('#pr-fb-focus').textContent(), /「第 1 句，我們來談談進度」/);
+      assert.doesNotMatch(await page.locator('#pr-fb-focus').textContent(), /我想聽聽你覺得卡在哪裡/);
+      assert.ok((await page.locator('#pr-fb-focus .hint').textContent()).includes(MOCK_FOCUS));
       assert.ok(await page.locator('#pr-fb-focus').evaluate((el) => {
         const carry = document.querySelector('#pr-fb-carry');
         return Boolean(carry && (el.compareDocumentPosition(carry) & Node.DOCUMENT_POSITION_FOLLOWING));
@@ -260,6 +266,8 @@ const PORT = 5174;
       const stored = await page.evaluate(() => localStorage.getItem('emo.practice.v2'));
       // 回饋本身會引用原話（例如 focusCheck），但逐字稿不存：沒被回饋引用的句子不應出現
       assert.ok(!stored.includes('這陣子辛苦了') && !stored.includes('第 12 句') && !stored.includes('"messages"'), '不應存逐字稿');
+      const storedLines = Array.from({ length: 12 }, (_, i) => `第 ${i + 1} 句，`).filter((t) => stored.includes(t));
+      assert.ok(storedLines.length <= 1, `第二次對練的 12 句裡，最多只有被引用的那句出現在紀錄裡（實際 ${storedLines.length} 句）`);
 
       // 沒有小抄的舊紀錄照常顯示
       await page.evaluate(() => {
@@ -276,11 +284,45 @@ const PORT = 5174;
       await oldRecord.locator('details summary').tap();
       assert.ok(await oldRecord.locator('[data-act="retry-record"]').isVisible());
 
+      // 涉及去留的紀錄：「先跟人資確認」的提醒不收在「看回饋」裡，而且排在「開場可以說」之前
+      await page.evaluate(() => {
+        const records = JSON.parse(localStorage.getItem('emo.practice.v2'));
+        const feedback = { ...records[0].feedback, riskNote: '「如果再這樣就不用來了」可能被理解成要他離職，實際談之前先跟人資確認程序。' };
+        records.push({ ...records[0], id: 'risk-record', at: '2026-01-02T00:00:00.000Z', title: '有風險提醒的紀錄', feedback });
+        localStorage.setItem('emo.practice.v2', JSON.stringify(records));
+      });
+      await page.locator('[data-act="home"]').tap();
+      await page.locator('[data-act="records"]').tap();
+      const riskRecord = page.locator('.record').filter({ hasText: '有風險提醒的紀錄' });
+      assert.equal(await riskRecord.locator('details').evaluate((el) => el.open), false);
+      assert.ok(await riskRecord.locator('.fb.risk').isVisible(), '不展開回饋也看得到風險提醒');
+      assert.equal(await riskRecord.locator('.fb.risk').count(), 1, '風險提醒不重複出現');
+      assert.ok(await riskRecord.locator('.fb.risk').evaluate((el) => {
+        const carry = el.parentElement.querySelector('.carry');
+        return Boolean(carry && (el.compareDocumentPosition(carry) & Node.DOCUMENT_POSITION_FOLLOWING));
+      }), '風險提醒排在小抄之前');
+      await riskRecord.scrollIntoViewIfNeeded();
+      await shot('8b-record-risk');
+
       // 從紀錄再練一次：不用重新生成狀況卡，也帶著那次的「下次可以試」
       await page.locator('[data-act="retry-record"]').first().tap();
       await page.locator('#pr-say').waitFor();
       assert.match(await page.locator('.chat-title').textContent(), /進度延遲/);
-      assert.ok((await page.locator('#pr-focus').textContent()).includes(MOCK_NEXT_STEP));
+      assert.equal(await focusBody(), MOCK_FOCUS);
+
+      // 從紀錄再練、但要先輸入邀請碼：輸入後一樣帶著那一點
+      await page.evaluate(() => localStorage.removeItem('emo.practice.code.v1'));
+      await page.reload();
+      await page.locator('#pr-code').waitFor();
+      await page.locator('[data-act="records"]').tap();
+      await page.locator('[data-act="retry-record"]').first().tap();
+      await page.locator('#pr-code').waitFor();
+      assert.match(await page.locator('#pr-notice').textContent(), /先輸入邀請碼/);
+      await page.fill('#pr-code', CODE);
+      await page.locator('#pr-enter').tap();
+      await page.locator('#pr-say').waitFor();
+      assert.match(await page.locator('.chat-title').textContent(), /進度延遲/);
+      assert.equal(await focusBody(), MOCK_FOCUS, '先輸入邀請碼的那條路也保留刻意練的那一點');
 
       // 情緒小夥伴圖鑑：公開頁面，六位小夥伴，每位都能帶著情境去練
       await page.goto(`http://localhost:${PORT}/companions`);

@@ -281,9 +281,15 @@ function focusHtml(fb, focus) {
   return `<section class="fb focus" id="pr-fb-focus"><h2>這次刻意練的</h2>${focus ? `<p class="hint">${escapeHtml(focus)}</p>` : ''}<p>${escapeHtml(fb.focusCheck)}</p></section>`;
 }
 
-function feedbackHtml(fb, { carry = true, focus = '' } = {}) {
+// 涉及去留、調職、懲處時的提醒：一定排在「開場可以說」之前。
+function riskHtml(fb, { withId = true } = {}) {
+  if (!fb.riskNote) return '';
+  return `<section class="fb risk" ${withId ? 'id="pr-fb-risk"' : ''}><h2>實際談之前先確認</h2><p>${escapeHtml(fb.riskNote)}</p></section>`;
+}
+
+function feedbackHtml(fb, { carry = true, risk = true, focus = '' } = {}) {
   return `
-    ${fb.riskNote ? `<section class="fb risk" id="pr-fb-risk"><h2>實際談之前先確認</h2><p>${escapeHtml(fb.riskNote)}</p></section>` : ''}
+    ${risk ? riskHtml(fb) : ''}
     ${focusHtml(fb, focus)}
     ${carry && fb.carry ? carryHtml(fb.carry) : ''}
     <section class="fb" id="pr-fb-feelings">
@@ -379,8 +385,9 @@ function renderRecords() {
     <time datetime="${escapeHtml(r.at)}">${dateFormat.format(new Date(r.at))}</time>
     <p class="record-title">${escapeHtml(r.title)}</p>
     ${r.situation ? `<p class="hint">${escapeHtml(r.situation)}</p>` : ''}
+    ${riskHtml(r.feedback, { withId: false })}
     ${carryHtml(r.feedback.carry, { withId: false })}
-    <details><summary>看回饋</summary>${feedbackHtml(r.feedback, { carry: false, focus: r.focus })}</details>
+    <details><summary>看回饋</summary>${feedbackHtml(r.feedback, { carry: false, risk: false, focus: r.focus })}</details>
     ${setupFromRecord(r) ? `<button type="button" class="btn ghost" data-act="retry-record" data-id="${escapeHtml(r.id)}">用這個狀況再練一次</button>` : ''}
   </article>`).join('');
   view.innerHTML = `

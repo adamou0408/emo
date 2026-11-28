@@ -37,7 +37,8 @@ export const MOCK_DRILL = {
 
 export const MOCK_CONTRIBUTION = '我把一個臨時的客戶需求交給部屬，他回說這不在他的工作範圍。我想讓他接，但也不想讓他覺得一直被多塞事情。';
 
-export const MOCK_FOCUS_CHECK = '你在「我想聽聽你覺得卡在哪裡」這句先問了他的看法，他接著說出規格一直改；結尾還可以約好下一步和時間。';
+// 引用的是逐字稿裡使用者真的說過的那句（後端會比對）。
+export const MOCK_FOCUS_CHECK = (line) => `你在「${line}」這句先說了你看到的事實，他接著說出規格一直改；結尾還可以約好下一步和時間。`;
 
 export const MOCK_FEEDBACK = (firstManagerLine, focusCheck = '') => ({
   feelings: {
@@ -85,9 +86,9 @@ export function createMockClient({ calls = [], override } = {}) {
           }
           const transcript = params.messages[0].content;
           const first = (transcript.match(/你：(.*)/) ?? [])[1] ?? '';
-          // 有「刻意練的重點」時才描述有沒有做到。
-          const focused = JSON.stringify(params.system).includes('刻意練的重點');
-          return textResponse(MOCK_FEEDBACK(first, focused ? MOCK_FOCUS_CHECK : ''));
+          // 有 <focus>（這次刻意練的重點）時才描述有沒有做到。
+          const focused = transcript.includes('<focus>');
+          return textResponse(MOCK_FEEDBACK(first, focused ? MOCK_FOCUS_CHECK(first) : ''));
         },
       },
     },

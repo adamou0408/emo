@@ -225,6 +225,7 @@ textarea, .code-form input {
 .brief p { margin: 0; }
 .brief .risk { border-left: 6px solid #C9932E; }
 .fb.risk { border-left: 6px solid #C9932E; }
+.record .fb.risk { padding: 8px 0 8px 12px; margin-top: 8px; }
 .link-row { display: flex; justify-content: center; margin-top: 12px; }
 .link-row .btn { min-height: 44px; }
 
@@ -278,7 +279,8 @@ textarea, .code-form input {
   border: 2px solid var(--accent);
   overflow-wrap: anywhere;
 }
-.focus-pin span { display: block; font-size: .8rem; font-weight: 700; color: var(--accent); }
+/* 小字用 --ink-soft：淺色模式下 --accent 配白底對比不到 4.5:1，橘色只留在邊框。 */
+.focus-pin span { display: block; font-size: .8rem; font-weight: 700; color: var(--ink-soft); }
 .fb.focus { border-color: var(--accent); }
 .fb.focus .hint { margin: 0 0 6px; }
 

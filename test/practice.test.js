@@ -174,6 +174,21 @@ test('再練一次的重點：只取上次回饋的「下次可以試」，缺�
   assert.equal([...focusFromFeedback({ nextStep: '字'.repeat(400) })].length, 300);
 });
 
+test('再練一次的重點：去掉開頭的「下次」，讀起來是這次要練的那一點', () => {
+  const focus = focusFromFeedback({ nextStep: MOCK_FEEDBACK('a').next_step });
+  assert.ok(!focus.startsWith('下次'), focus);
+  assert.ok(focus.startsWith('開場先用一句話'), focus);
+  assert.equal(focusFromFeedback({ nextStep: '下次開口時，先問他的看法。' }), '先問他的看法。');
+  assert.equal(focusFromFeedback({ nextStep: '下一次談的時候先說事實' }), '先說事實');
+  assert.equal(focusFromFeedback({ nextStep: '下次可以先停一下' }), '先停一下');
+  assert.equal(focusFromFeedback({ nextStep: '下次' }), '下次', '只有「下次」時保留原文，不變成空字串');
+  assert.equal(focusFromFeedback({ nextStep: '先說事實，下次再問' }), '先說事實，下次再問', '只去掉開頭');
+  // 舊紀錄存的重點也一樣顯示
+  const storage = fakeStorage();
+  addRecord(storage, { setup: SETUP, feedback: MOCK_FEEDBACK('a'), focus: '下次先說事實' });
+  assert.equal(loadRecords(storage)[0].focus, '先說事實');
+});
+
 test('練習紀錄存下這次刻意練的重點；舊紀錄沒有重點也能讀', () => {
   const storage = fakeStorage();
   addRecord(storage, { setup: SETUP, feedback: MOCK_FEEDBACK('a'), focus: '先說事實' }, { now: new Date('2026-11-28T08:00:00Z') });
