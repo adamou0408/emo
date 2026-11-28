@@ -17,6 +17,7 @@ import { escapeHtml } from './html.js';
 import {
   addRecord,
   createApi,
+  focusFromFeedback,
   loadCode,
   loadRecords,
   saveCode,
@@ -43,6 +44,7 @@ const ps = {
   contribution: null, // null | { state: 'preview' | 'saved' | 'rejected', scenario?, message? }
   notice: null, // { kind: 'unlawful' | 'error', title?, body }
   feedback: null,
+  focus: '', // 這次刻意練的那一點（上次回饋的「下次可以試」）；只送到回饋，不送到角色扮演
   pendingRetry: null,
 };
 
@@ -232,6 +234,7 @@ function renderChat() {
       <p class="chat-title">${escapeHtml(brief.title)}</p>
       <p class="chat-count" id="pr-turns">已說 ${used}／${MAX_TURNS} 句</p>
     </div>
+    ${ps.focus ? `<p class="focus-pin" id="pr-focus"><span>這次刻意練</span>${escapeHtml(ps.focus)}</p>` : ''}
     <div class="chat" id="pr-chat" aria-live="polite">
       <p class="stage">${escapeHtml(brief.opening)}</p>
       ${ps.messages.map(bubble).join('')}
@@ -267,9 +270,16 @@ function carryHtml(carry, { withId = true } = {}) {
     </section>`;
 }
 
-function feedbackHtml(fb, { carry = true } = {}) {
+// 這次刻意練的那一點有沒有做到：是描述，不是評分。
+function focusHtml(fb, focus) {
+  if (!fb.focusCheck) return '';
+  return `<section class="fb focus" id="pr-fb-focus"><h2>這次刻意練的</h2>${focus ? `<p class="hint">${escapeHtml(focus)}</p>` : ''}<p>${escapeHtml(fb.focusCheck)}</p></section>`;
+}
+
+function feedbackHtml(fb, { carry = true, focus = '' } = {}) {
   return `
     ${fb.riskNote ? `<section class="fb risk" id="pr-fb-risk"><h2>實際談之前先確認</h2><p>${escapeHtml(fb.riskNote)}</p></section>` : ''}
+    ${focusHtml(fb, focus)}
     ${carry && fb.carry ? carryHtml(fb.carry) : ''}
     <section class="fb" id="pr-fb-feelings">
       <h2>他當下可能的感受</h2>
@@ -349,7 +359,7 @@ function renderFeedback() {
   view.innerHTML = `
     <h1>這次的回饋</h1>
     <p class="sub">${escapeHtml(ps.setup.brief.title)}</p>
-    ${feedbackHtml(ps.feedback)}
+    ${feedbackHtml(ps.feedback, { focus: ps.focus })}
     ${contributionHtml()}
     <button type="button" class="btn primary block" data-act="retry" id="pr-retry">用同樣的狀況再練一次</button>
     <button type="button" class="btn ghost block" data-act="new">練另一件事</button>
@@ -365,7 +375,7 @@ function renderRecords() {
     <p class="record-title">${escapeHtml(r.title)}</p>
     ${r.situation ? `<p class="hint">${escapeHtml(r.situation)}</p>` : ''}
     ${carryHtml(r.feedback.carry, { withId: false })}
-    <details><summary>看回饋</summary>${feedbackHtml(r.feedback, { carry: false })}</details>
+    <details><summary>看回饋</summary>${feedbackHtml(r.feedback, { carry: false, focus: r.focus })}</details>
     ${setupFromRecord(r) ? `<button type="button" class="btn ghost" data-act="retry-record" data-id="${escapeHtml(r.id)}">用這個狀況再練一次</button>` : ''}
   </article>`).join('');
   view.innerHTML = `
@@ -468,6 +478,7 @@ async function makeBrief() {
   ps.busy = '';
   if (result.ok && result.type === 'brief') {
     ps.setup = { situation, dims, brief: result.brief };
+    ps.focus = '';
     return goStep('brief');
   }
   if (result.ok && result.type === 'crisis') return stopForCrisis();
@@ -561,12 +572,12 @@ async function finish() {
   ps.busy = 'feedback';
   ps.notice = null;
   rerender({ scroll: true });
-  const result = await api.feedback(ps.code, ps.setup, ps.messages);
+  const result = await api.feedback(ps.code, ps.setup, ps.messages, ps.focus);
   ps.busy = '';
   if (result.ok && result.type === 'feedback') {
     ps.feedback = result.feedback;
     ps.contribution = null;
-    addRecord(storage, { setup: ps.setup, feedback: result.feedback });
+    addRecord(storage, { setup: ps.setup, feedback: result.feedback, focus: ps.focus });
     ps.messages = [];
     return goStep('feedback');
   }
@@ -609,8 +620,15 @@ export function handlePracticeClick(event) {
     rerender({ focus: `[data-dim="${dim}"][data-option="${option}"]` });
   } else if (act === 'brief') makeBrief();
   else if (act === 'describe') goStep('describe');
-  else if (act === 'start' || act === 'retry') start();
-  else if (act === 'new') {
+  else if (act === 'start') {
+    ps.focus = '';
+    start();
+  } else if (act === 'retry') {
+    // 同樣的狀況再練一次：帶著上次「下次可以試」的那一點。
+    ps.focus = focusFromFeedback(ps.feedback);
+    start();
+  } else if (act === 'new') {
+    ps.focus = '';
     ps.situation = '';
     ps.dims = {};
     ps.setup = null;
@@ -624,6 +642,7 @@ export function handlePracticeClick(event) {
     ps.situation = drillSituation(drill);
     ps.dims = { relation: 'report', companion: drill.companion };
     ps.setup = null;
+    ps.focus = '';
     goStep('describe');
   } else if (act === 'contribute-preview') contribute('preview');
   else if (act === 'contribute-save') contribute('save');
@@ -632,8 +651,11 @@ export function handlePracticeClick(event) {
     rerender();
   }
   else if (act === 'retry-record') {
-    const setup = setupFromRecord(loadRecords(storage).find((r) => r.id === id));
+    const record = loadRecords(storage).find((r) => r.id === id);
+    const setup = setupFromRecord(record);
     if (!setup) return;
+    // 先設好重點，要先輸入邀請碼的那條路（pendingRetry）也會保留。
+    ps.focus = focusFromFeedback(record.feedback);
     ps.situation = setup.situation;
     ps.dims = { ...setup.dims };
     if (!ps.codeOk) {

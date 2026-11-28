@@ -37,7 +37,9 @@ export const MOCK_DRILL = {
 
 export const MOCK_CONTRIBUTION = '我把一個臨時的客戶需求交給部屬，他回說這不在他的工作範圍。我想讓他接，但也不想讓他覺得一直被多塞事情。';
 
-export const MOCK_FEEDBACK = (firstManagerLine) => ({
+export const MOCK_FOCUS_CHECK = '你在「我想聽聽你覺得卡在哪裡」這句先問了他的看法，他接著說出規格一直改；結尾還可以約好下一步和時間。';
+
+export const MOCK_FEEDBACK = (firstManagerLine, focusCheck = '') => ({
   feelings: {
     intent: '你想讓他知道進度的嚴重性，並一起找出能趕上的做法。',
     impact: '一開始他感覺被追究、有點防衛；你問他的看法之後，他比較願意說出卡住的地方。',
@@ -63,6 +65,7 @@ export const MOCK_FEEDBACK = (firstManagerLine) => ({
     if_he: '規格一直在改，你現在怪我也沒用吧。',
     you_say: '我不是要怪你，規格改了幾次我也想弄清楚，我們一起看哪一段最卡。',
   },
+  focus_check: focusCheck,
 });
 
 export function createMockClient({ calls = [], override } = {}) {
@@ -82,7 +85,9 @@ export function createMockClient({ calls = [], override } = {}) {
           }
           const transcript = params.messages[0].content;
           const first = (transcript.match(/你：(.*)/) ?? [])[1] ?? '';
-          return textResponse(MOCK_FEEDBACK(first));
+          // 有「刻意練的重點」時才描述有沒有做到。
+          const focused = JSON.stringify(params.system).includes('刻意練的重點');
+          return textResponse(MOCK_FEEDBACK(first, focused ? MOCK_FOCUS_CHECK : ''));
         },
       },
     },

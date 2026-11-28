@@ -6,7 +6,8 @@ import {
 } from '../public/src/practice-data.js';
 import { hasCrisisSignal, hasUnlawfulIntent, screen } from '../public/src/practice-safety.js';
 import {
-  CODE_KEY, LEGACY_PRACTICE_KEY, PRACTICE_KEY, addRecord, createApi, loadCode, loadRecords, saveCode, setupFromRecord,
+  CODE_KEY, LEGACY_PRACTICE_KEY, PRACTICE_KEY, addRecord, createApi, focusFromFeedback, loadCode, loadRecords, saveCode,
+  setupFromRecord,
 } from '../public/src/practice.js';
 import { MOCK_BRIEF, MOCK_FEEDBACK } from '../scripts/mock-claude.mjs';
 import {
@@ -76,7 +77,7 @@ test('練習紀錄只存狀況、狀況卡與回饋，不存逐字稿；重新�
     { now: new Date('2026-11-27T08:00:00Z') });
   const records = loadRecords(storage);
   assert.deepEqual(records.map((r) => r.id), [second.id, first.id]);
-  assert.deepEqual(Object.keys(first).sort(), ['at', 'brief', 'dims', 'feedback', 'id', 'situation', 'title']);
+  assert.deepEqual(Object.keys(first).sort(), ['at', 'brief', 'dims', 'feedback', 'focus', 'id', 'situation', 'title']);
   assert.equal(first.title, BRIEF.title);
   assert.ok(!storage.map.get(PRACTICE_KEY).includes('messages'));
   assert.equal(records[0].situation, '他開會常打斷人');
@@ -163,4 +164,39 @@ test('情緒小夥伴：六位，每位都有保護什麼、職場上的樣子�
   }
   assert.equal(companionLabel(getCompanion('anger')), '小焰（生氣）');
   assert.equal(getCompanion('nobody'), null);
+});
+
+test('再練一次的重點：只取上次回饋的「下次可以試」，缺欄位時是空字串，最多 300 字', () => {
+  assert.equal(focusFromFeedback({ nextStep: '  先說事實再問他的看法。 ' }), '先說事實再問他的看法。');
+  assert.equal(focusFromFeedback(null), '');
+  assert.equal(focusFromFeedback({}), '');
+  assert.equal(focusFromFeedback({ nextStep: 42 }), '');
+  assert.equal([...focusFromFeedback({ nextStep: '字'.repeat(400) })].length, 300);
+});
+
+test('練習紀錄存下這次刻意練的重點；舊紀錄沒有重點也能讀', () => {
+  const storage = fakeStorage();
+  addRecord(storage, { setup: SETUP, feedback: MOCK_FEEDBACK('a'), focus: '先說事實' }, { now: new Date('2026-11-28T08:00:00Z') });
+  addRecord(storage, { setup: SETUP, feedback: MOCK_FEEDBACK('b') }, { now: new Date('2026-11-28T09:00:00Z') });
+  const [plain, focused] = loadRecords(storage);
+  assert.equal(focused.focus, '先說事實');
+  assert.equal(plain.focus, '');
+  const old = JSON.parse(storage.map.get(PRACTICE_KEY)).map(({ focus, ...r }) => r);
+  const legacyStorage = fakeStorage({ [PRACTICE_KEY]: JSON.stringify(old) });
+  assert.deepEqual(loadRecords(legacyStorage).map((r) => r.focus), ['', '']);
+  assert.ok(setupFromRecord(loadRecords(legacyStorage)[0]));
+});
+
+test('前端 API：回饋請求帶著重點，對練回合不帶', async () => {
+  const seen = [];
+  const api = createApi(async (url, init) => {
+    seen.push(JSON.parse(init.body));
+    return new Response(JSON.stringify({ type: 'feedback' }), { status: 200 });
+  });
+  await api.feedback('abc', SETUP, [{ role: 'manager', text: 'hi' }], '先說事實');
+  assert.equal(seen[0].focus, '先說事實');
+  await api.feedback('abc', SETUP, [{ role: 'manager', text: 'hi' }]);
+  assert.equal(seen[1].focus, '');
+  await api.turn('abc', SETUP, [{ role: 'manager', text: 'hi' }]);
+  assert.ok(!('focus' in seen[2]));
 });

@@ -12,7 +12,8 @@ const PORT = 5174;
 (async () => {
   const { startServer } = await import('./serve.mjs');
   const { handlePractice } = await import('../server/coach.js');
-  const { createMockClient } = await import('./mock-claude.mjs');
+  const { createMockClient, MOCK_FEEDBACK } = await import('./mock-claude.mjs');
+  const MOCK_NEXT_STEP = MOCK_FEEDBACK('').next_step;
   const { createMockD1 } = await import('./mock-d1.mjs');
   const CODE = 'smoke-code';
   const env = {};
@@ -116,6 +117,7 @@ const PORT = 5174;
       // 對練：語氣不同，部屬反應不同
       await page.locator('#pr-start').tap();
       assert.match(await page.locator('.stage').textContent(), /抱著筆電/);
+      assert.equal(await page.locator('#pr-focus').count(), 0, '第一次練沒有刻意練的重點');
       assert.match(await say('你到底為什麼又晚了！'), /怪我/, '被逼急時應該防衛');
       assert.match(await say('我想聽聽你覺得卡在哪裡，這陣子辛苦了。'), /放鬆/, '被理解時應該軟化');
       assert.match(await page.locator('#pr-turns').textContent(), /已說 2／12 句/);
@@ -171,15 +173,29 @@ const PORT = 5174;
       assert.equal(env.DB.contributions.length, 1);
       assert.ok(!env.DB.contributions[0].scenario.includes('你到底為什麼'), '不存逐字稿');
 
-      // 用同樣的狀況再練一次，並用完 12 回合
+      // 用同樣的狀況再練一次：帶著上次「下次可以試」的那一點，並用完 12 回合
       await page.locator('#pr-retry').tap();
       assert.equal(await page.locator('.msg').count(), 0);
       assert.match(await page.locator('.chat-title').textContent(), /進度延遲/);
+      await page.locator('#pr-focus').waitFor();
+      assert.ok((await page.locator('#pr-focus').textContent()).includes(MOCK_NEXT_STEP), '對練畫面列出這次刻意練的那一點');
+      await shot('6-focus-chat');
+      await noOverflow('刻意練的重點');
       for (let i = 1; i <= 12; i++) await say(`第 ${i} 句，我們來談談進度`);
       await page.locator('#pr-full').waitFor();
       assert.equal(await page.locator('#pr-say').count(), 0, '12 回合後不能再輸入');
       await page.locator('#pr-finish').tap();
       await page.locator('#pr-fb-feelings').waitFor();
+      await page.locator('#pr-fb-focus').waitFor();
+      assert.match(await page.locator('#pr-fb-focus').textContent(), /我想聽聽你覺得卡在哪裡/);
+      assert.ok((await page.locator('#pr-fb-focus').textContent()).includes(MOCK_NEXT_STEP));
+      assert.ok(await page.locator('#pr-fb-focus').evaluate((el) => {
+        const carry = document.querySelector('#pr-fb-carry');
+        return Boolean(carry && (el.compareDocumentPosition(carry) & Node.DOCUMENT_POSITION_FOLLOWING));
+      }), '刻意練的區塊排在小抄之前');
+      await page.locator('#pr-fb-focus').scrollIntoViewIfNeeded();
+      await shot('6b-focus-feedback');
+      await noOverflow('刻意練的回饋');
 
       // 練另一件事：回到空白描述，點選也清空
       await page.locator('[data-act="new"]').tap();
@@ -225,7 +241,8 @@ const PORT = 5174;
       await shot('8-records');
       await noOverflow('練習紀錄');
       const stored = await page.evaluate(() => localStorage.getItem('emo.practice.v2'));
-      assert.ok(!stored.includes('我想聽聽你覺得卡在哪裡') && !stored.includes('第 12 句'), '不應存逐字稿');
+      // 回饋本身會引用原話（例如 focusCheck），但逐字稿不存：沒被回饋引用的句子不應出現
+      assert.ok(!stored.includes('這陣子辛苦了') && !stored.includes('第 12 句') && !stored.includes('"messages"'), '不應存逐字稿');
 
       // 沒有小抄的舊紀錄照常顯示
       await page.evaluate(() => {
@@ -242,10 +259,11 @@ const PORT = 5174;
       await oldRecord.locator('details summary').tap();
       assert.ok(await oldRecord.locator('[data-act="retry-record"]').isVisible());
 
-      // 從紀錄再練一次：不用重新生成狀況卡
+      // 從紀錄再練一次：不用重新生成狀況卡，也帶著那次的「下次可以試」
       await page.locator('[data-act="retry-record"]').first().tap();
       await page.locator('#pr-say').waitFor();
       assert.match(await page.locator('.chat-title').textContent(), /進度延遲/);
+      assert.ok((await page.locator('#pr-focus').textContent()).includes(MOCK_NEXT_STEP));
 
       // 情緒小夥伴圖鑑：公開頁面，六位小夥伴，每位都能帶著情境去練
       await page.goto(`http://localhost:${PORT}/companions`);

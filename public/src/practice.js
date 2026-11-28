@@ -1,7 +1,7 @@
 // 練習的前端邏輯：練習紀錄、邀請碼、呼叫後端。不碰 DOM。
 // 練習紀錄只存點選的情境、狀況描述、狀況卡與回饋，不存對話逐字稿，而且只存在這台裝置的瀏覽器。
 
-import { BRIEF_FIELDS } from './practice-data.js';
+import { BRIEF_FIELDS, MAX_BRIEF_CHARS } from './practice-data.js';
 import { cleanDims, isScenarioReady } from './scenario.js';
 
 export const PRACTICE_KEY = 'emo.practice.v2';
@@ -34,6 +34,12 @@ export function isValidBrief(brief) {
     && BRIEF_FIELDS.every((f) => typeof brief[f.id] === 'string'));
 }
 
+// 「再練一次」帶著上次「下次可以試」的那一點（只帶這一句，不帶整份回饋）。
+export function focusFromFeedback(fb) {
+  if (typeof fb?.nextStep !== 'string') return '';
+  return [...fb.nextStep.trim()].slice(0, MAX_BRIEF_CHARS).join('');
+}
+
 function isValidRecord(r) {
   return r && typeof r.id === 'string' && typeof r.at === 'string' && isText(r.title)
     && r.feedback && typeof r.feedback === 'object';
@@ -59,10 +65,13 @@ export function loadRecords(storage) {
     ...(Array.isArray(current) ? current : []),
     ...(Array.isArray(legacy) ? legacy.map(fromLegacy) : []),
   ];
-  return all.filter(isValidRecord).sort((a, b) => b.at.localeCompare(a.at));
+  return all.filter(isValidRecord)
+    .map((r) => ({ ...r, focus: typeof r.focus === 'string' ? r.focus : '' }))
+    .sort((a, b) => b.at.localeCompare(a.at));
 }
 
-export function addRecord(storage, { setup, feedback }, { now = new Date(), rng = Math.random } = {}) {
+// focus 是這次刻意練的那一點，來自上次已經存下的回饋，不是逐字稿。
+export function addRecord(storage, { setup, feedback, focus = '' }, { now = new Date(), rng = Math.random } = {}) {
   const at = now.toISOString();
   const record = {
     id: `${at}-${Math.floor(rng() * 1e9).toString(36)}`,
@@ -72,6 +81,7 @@ export function addRecord(storage, { setup, feedback }, { now = new Date(), rng 
     dims: { ...(setup.dims ?? {}) },
     brief: { ...setup.brief },
     feedback,
+    focus: typeof focus === 'string' ? focus : '',
   };
   const current = readJson(storage, PRACTICE_KEY, []);
   const records = [record, ...(Array.isArray(current) ? current : []).filter(isValidRecord)].slice(0, MAX_RECORDS);
@@ -135,7 +145,7 @@ export function createApi(fetchImpl = (...args) => fetch(...args)) {
     verify: (code) => request(fetchImpl, 'verify', { code }),
     brief: (code, { situation, dims }) => request(fetchImpl, 'brief', { code, body: { situation, dims } }),
     turn: (code, setup, messages) => request(fetchImpl, 'turn', { code, body: { setup, messages } }),
-    feedback: (code, setup, messages) => request(fetchImpl, 'feedback', { code, body: { setup, messages } }),
+    feedback: (code, setup, messages, focus = '') => request(fetchImpl, 'feedback', { code, body: { setup, messages, focus } }),
     drill: (code, drillId, answer) => request(fetchImpl, 'drill', { code, body: { drillId, answer } }),
     contributePreview: (code, { situation, dims }) => request(fetchImpl, 'contribute', { code, body: { mode: 'preview', situation, dims } }),
     contributeSave: (code, scenario, hisCompanion, yourCompanion) => request(fetchImpl, 'contribute', {
