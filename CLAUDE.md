@@ -99,6 +99,18 @@ AI 扮演那位部屬陪練 → 教練回饋。網址 https://emo.aixmoment.com�
 - **子工作階段做完就封存**：回報結果與未完成事項後，由主工作階段請使用者封存，不要讓閒置的工作階段之後又動 repo。
 - 開新工作階段時，第一件事是讀這份 `CLAUDE.md` 並 `git fetch`，看 `main` 最近的提交，確認自己不是在舊版本上工作。
 
+## 開發注意事項（各工作階段累積的經驗）
+
+- Preview 和 Production 的環境變數是分開設的（目前 Preview 沒有 `ANTHROPIC_API_KEY`、`ACCESS_CODE`，所以預覽網址無法真的對練）。
+  改完要重新部署才生效。給預覽網址前先打 `/api/practice/status` 看 `ready`、`missing`。
+- 等部署時不要用 sleep 輪詢；用 until 迴圈查部署狀態，條件是 `latest_stage` 為 deploy/success 或 failure。
+- smoke 裡故意用錯的邀請碼會在 console 留一筆 401，console 錯誤過濾要排除 `status of 401`。
+- 禁用字詞測試會掃情境、例子、題目、註解，連「負面回饋」「失敗時」也會擋；改寫成「需要改進的回饋」「寫不進去時」。
+- 確認 Functions 能打包：`npx wrangler pages functions build`；本機用 workerd 跑後端：`wrangler pages dev public --binding ...`。
+- 分支若是在舊版上做的，先跟使用者確認方向再移植，不要直接合併；要讓分支內容等於 `main` 又不強制 push，可用 `git merge -s ours` 再快轉。
+- 語音輸入：用手機鍵盤的聽寫即可，不另做網頁麥克風按鈕（`_headers` 封鎖麥克風，Web Speech 會把聲音送到第三方，違反隱私說明）。
+  若要做「整段用說的練」，先跟使用者決定聲音送到哪裡處理。
+
 ## 部署
 
 - Cloudflare Pages 專案 `emo-aixmoment`，已連結 GitHub `adamou0408/emo`：
